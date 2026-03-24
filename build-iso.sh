@@ -494,7 +494,7 @@ paint_footer() {
     cols="$(tput cols 2>/dev/null || echo 80)"
     rows="$(tput lines 2>/dev/null || echo 24)"
     local pad=$(( cols - ${#msg} - 1 ))
-    (( pad < 0 )) && pad=0
+    (( pad < 0 )) && pad=0 || true
     # Save cursor, move to last row, print right-justified, restore cursor
     tput sc
     tput cup $(( rows - 1 )) "$pad"
@@ -512,7 +512,7 @@ run_dialog() {
 
 show_main_menu() {
     local ii_count=0 ii_total=${#II_FEATURE_BRANCHES[@]}
-    for s in "${II_FEATURE_SELECTED[@]}"; do (( s )) && (( ii_count++ )); done
+    for s in "${II_FEATURE_SELECTED[@]}"; do (( s )) && (( ii_count++ )) || true; done
     local ii_summary="off"
     $ENABLE_II_FEATURES && ii_summary="${ii_count}/${ii_total} features"
     $ENABLE_II && [[ $ENABLE_II_FEATURES == false ]] && ii_summary="base only"
@@ -670,7 +670,7 @@ configure_ii_features() {
             dep_note=" [requires: ${II_FEATURE_LABELS[$dep]}]"
         fi
         local state="off"
-        (( II_FEATURE_SELECTED[i] )) && state="on"
+        (( II_FEATURE_SELECTED[i] )) && state="on" || true
         args+=( "$i" "${II_FEATURE_LABELS[$i]}  —  ${II_FEATURE_DESCS[$i]}${dep_note}" "$state" )
     done
 
@@ -1044,8 +1044,8 @@ packages_summary() {
     local parts=() aur_count=0
     $INSTALL_YAY && parts+=("yay")
     [[ -n "$EXTRA_PACKAGES" ]] && parts+=("pkg")
-    for s in "${AUR_PACKAGE_SELECTED[@]}"; do (( s )) && (( aur_count++ )); done
-    (( aur_count > 0 )) && parts+=("aur:${aur_count}")
+    for s in "${AUR_PACKAGE_SELECTED[@]}"; do (( s )) && (( aur_count++ )) || true; done
+    (( aur_count > 0 )) && parts+=("aur:${aur_count}") || true
     [[ -n "$CUSTOM_AUR_PACKAGES" ]] && parts+=("custom-aur")
     [[ ${#parts[@]} -eq 0 ]] && echo "defaults" && return
     echo "${parts[*]}"
@@ -1153,7 +1153,7 @@ configure_packages() {
         local -a aur_args=()
         for i in "${!AUR_PACKAGE_LIST[@]}"; do
             local state="off"
-            (( AUR_PACKAGE_SELECTED[i] )) && state="on"
+            (( AUR_PACKAGE_SELECTED[i] )) && state="on" || true
             aur_args+=( "$i" "${AUR_PACKAGE_LIST[$i]}" "$state" )
         done
 
@@ -1303,7 +1303,7 @@ show_review() {
         fi
     done
     local aur_str="(none)"
-    (( aur_count > 0 )) && aur_str="${aur_count} selected"
+    (( aur_count > 0 )) && aur_str="${aur_count} selected" || true
     local custom_aur_str="${CUSTOM_AUR_PACKAGES:-(none)}"
 
     run_dialog \
