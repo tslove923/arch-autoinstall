@@ -1,0 +1,11 @@
+[Unit]
+Description=Hibernate Guard — periodic disk/swap space check
+Documentation=man:systemctl(1)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,7 @@
+[Unit]
+Description=Hibernate Guard — disable hibernate when disk/swap space is low
+Documentation=man:systemctl(1)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/hibernate-guard.sh

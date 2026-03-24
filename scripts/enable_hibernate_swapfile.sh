@@ -8,14 +8,24 @@
 # NOTE: systemd ≥259 requires the swapfile to live on its own subvolume
 # (not the root @), otherwise CanHibernate reports "na".
 #
-# Usage:  sudo ./enable_hibernate_swapfile.sh [SIZE]   (default 40G)
+# Usage:  sudo ./enable_hibernate_swapfile.sh [SIZE]   (default: RAM + 2G)
 # ─────────────────────────────────────────────────────────
 set -euo pipefail
 
 SWAP_SUBVOL="@swap"
 SWAP_MOUNT="/swap"
 SWAPFILE="${SWAP_MOUNT}/swapfile"
-SWAPSIZE="${1:-40G}"
+
+# Auto-detect RAM and size swapfile to RAM + 2 GiB (rounded up)
+# Override with: sudo ./enable_hibernate_swapfile.sh 32G
+if [[ -n "${1:-}" ]]; then
+    SWAPSIZE="$1"
+else
+    RAM_KIB="$(awk '/^MemTotal:/{print $2}' /proc/meminfo)"
+    RAM_GIB=$(( (RAM_KIB + 1048575) / 1048576 ))   # round up to next GiB
+    SWAPSIZE="$(( RAM_GIB + 2 ))G"
+    echo "  Auto-detected RAM: ${RAM_GIB}G → swap size: ${SWAPSIZE}"
+fi
 
 # ── Prereqs ──────────────────────────────────────────────
 [[ $EUID -eq 0 ]] || { echo "Run as root: sudo $0 [SIZE]"; exit 1; }

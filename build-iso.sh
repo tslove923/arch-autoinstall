@@ -63,6 +63,15 @@ OUTPUT_ISO=""
 LOAD_CONFIG=""        # --config <path>
 LOAD_CREDS=""         # --creds <path>
 
+# Sleep / Power management
+SUSPEND_MODE="deep"              # deep (S3) or s2idle (S0ix)
+SLEEP_ACTION="suspend-then-hibernate"  # suspend | hibernate | suspend-then-hibernate | hybrid-sleep
+HIBERNATE_DELAY="120min"         # for suspend-then-hibernate: time before hibernate
+LID_ACTION="suspend-then-hibernate"    # suspend | hibernate | suspend-then-hibernate | lock | ignore
+IDLE_ACTION="suspend-then-hibernate"   # suspend | hibernate | suspend-then-hibernate | ignore
+IDLE_TIMEOUT_SEC=900             # seconds before idle action (15 min default)
+ENABLE_HIBERNATE_GUARD=true      # hibernate-guard disk-space watchdog
+
 # ─── illogical-impulse feature catalog ─────────────────────────────────────────
 # Mirrors the catalog in dots-hyprland-dev/apply-features.sh
 II_FEATURE_BRANCHES=(
@@ -165,7 +174,14 @@ config_to_json() {
     "timezone": "$TIMEZONE_CFG",
     "locale": "$LOCALE_CFG",
     "kb_layout": "$KB_LAYOUT_CFG",
-    "gfx_driver": "$GFX_DRIVER"
+    "gfx_driver": "$GFX_DRIVER",
+    "suspend_mode": "$SUSPEND_MODE",
+    "sleep_action": "$SLEEP_ACTION",
+    "hibernate_delay": "$HIBERNATE_DELAY",
+    "lid_action": "$LID_ACTION",
+    "idle_action": "$IDLE_ACTION",
+    "idle_timeout_sec": $IDLE_TIMEOUT_SEC,
+    "enable_hibernate_guard": $ENABLE_HIBERNATE_GUARD
 }
 CFGJSON
 }
@@ -196,7 +212,15 @@ load_config_json() {
     v="$(_json_bool enable_hyprland)";     [[ -n "$v" ]] && ENABLE_HYPRLAND=$v
     v="$(_json_bool enable_gnome)";        [[ -n "$v" ]] && ENABLE_GNOME=$v
     v="$(_json_bool enable_ii)";           [[ -n "$v" ]] && ENABLE_II=$v
-    v="$(_json_bool enable_ii_features)";  [[ -n "$v" ]] && ENABLE_II_FEATURES=$v
+    v="$(_json_bool enable_ii_features)";  [[ -n "$v" ]] && ENABLE_II_FEATU
+    v="$(_json_str suspend_mode)";         [[ -n "$v" ]] && SUSPEND_MODE="$v"
+    v="$(_json_str sleep_action)";         [[ -n "$v" ]] && SLEEP_ACTION="$v"
+    v="$(_json_str hibernate_delay)";      [[ -n "$v" ]] && HIBERNATE_DELAY="$v"
+    v="$(_json_str lid_action)";           [[ -n "$v" ]] && LID_ACTION="$v"
+    v="$(_json_str idle_action)";          [[ -n "$v" ]] && IDLE_ACTION="$v"
+    v="$(grep -oP '"idle_timeout_sec"\s*:\s*\K[0-9]+' "$path" | head -1)"
+    [[ -n "$v" ]] && IDLE_TIMEOUT_SEC=$v
+    v="$(_json_bool enable_hibernate_guard)"; [[ -n "$v" ]] && ENABLE_HIBERNATE_GUARD=$vRES=$v
     v="$(_json_bool auto_disk)";           [[ -n "$v" ]] && AUTO_DISK=$v
     v="$(_json_str hostname)";             [[ -n "$v" ]] && HOSTNAME_CFG="$v"
     v="$(_json_str username)";             [[ -n "$v" ]] && USERNAME_CFG="$v"
@@ -317,8 +341,19 @@ prompt_save_credentials() {
 }
 
 # ─── dialog color theme ────────────────────────────────────────────────────────
-# Black background, white text, orange (#cc3c09 ≈ color 166) accents
+# Black background, white text, orange (#cc3c09) accents.
+# dialog only supports 8 named colors (BLACK RED GREEN YELLOW BLUE MAGENTA
+# CYAN WHITE) mapped to ANSI colors 0-7.  Many modern terminal themes render
+# ANSI 1 (RED) as purple/magenta instead of red.  To get true OSUOSL orange
+# we use OSC 4 to temporarily remap ANSI color 1 to #cc3c09.
 setup_dialog_colors() {
+    # Remap ANSI color 1 ("RED") → OSUOSL orange (#cc3c09)
+    # shellcheck disable=SC1003
+    printf '\033]4;1;rgb:cc/3c/09\033\\'
+
+    # Restore original ANSI red on exit / interrupt
+    trap 'printf '"'"'\033]4;1;rgb:cc/00/00\033\\'"'"'' EXIT
+
     export DIALOGRC="$(mktemp)"
     cat > "$DIALOGRC" << 'DLGEOF'
 # Arch Autoinstall — Black + White + Orange theme
@@ -367,28 +402,28 @@ DLGEOF
 
 # ─── OSUOSL Banner ────────────────────────────────────────────────────────────
 show_banner() {
-    # Orange background (#cc3c09) approximation with ANSI
-    local BG='\033[48;2;204;60;9m'
-    local FG='\033[38;2;255;255;255m'
-    echo ""
-    echo -e "${BG}${FG}${BOLD}                                                              ${RST}"
-    echo -e "${BG}${FG}${BOLD}     ╔══════════════════════════════════════════════════╗      ${RST}"
-    echo -e "${BG}${FG}${BOLD}     ║      Arch Linux Zero-Touch Installer Builder     ║      ${RST}"
-    echo -e "${BG}${FG}${BOLD}     ║                                                  ║      ${RST}"
-    echo -e "${BG}${FG}${BOLD}     ║           ┌─────────────────────────┐             ║      ${RST}"
-    echo -e "${BG}${FG}${BOLD}     ║           │      ▄▄▄▄▄   ▄▄▄▄▄    │             ║      ${RST}"
-    echo -e "${BG}${FG}${BOLD}     ║           │     ██   ██ ██         │             ║      ${RST}"
-    echo -e "${BG}${FG}${BOLD}     ║           │     ██   ██  ▀▀▀██    │             ║      ${RST}"
-    echo -e "${BG}${FG}${BOLD}     ║           │     ██   ██     ██    │             ║      ${RST}"
-    echo -e "${BG}${FG}${BOLD}     ║           │      ▀▀▀▀▀  ▀▀▀▀▀    │             ║      ${RST}"
-    echo -e "${BG}${FG}${BOLD}     ║           │   OREGON STATE UNIV.   │             ║      ${RST}"
-    echo -e "${BG}${FG}${BOLD}     ║           └─────────────────────────┘             ║      ${RST}"
-    echo -e "${BG}${FG}${DIM}     ║                                                  ║      ${RST}"
-    echo -e "${BG}${FG}${DIM}     ║    ISO provided by OSUOSL — osuosl.org/donate    ║      ${RST}"
-    echo -e "${BG}${FG}${BOLD}     ╚══════════════════════════════════════════════════╝      ${RST}"
-    echo -e "${BG}${FG}${BOLD}                          Go Beavs! 🦫                         ${RST}"
-    echo -e "${BG}${FG}${BOLD}                                                              ${RST}"
-    echo ""
+    # Show as a dialog msgbox so it stays on screen until user presses OK
+    dialog \
+        --title "" \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --ok-label "Continue" \
+        --msgbox '
+       ╔══════════════════════════════════════════════════╗
+       ║      Arch Linux Zero-Touch Installer Builder     ║
+       ║                                                  ║
+       ║           ┌─────────────────────────┐            ║
+       ║           │      ▄▄▄▄▄   ▄▄▄▄▄     │            ║
+       ║           │     ██   ██ ██          │            ║
+       ║           │     ██   ██  ▀▀▀██     │            ║
+       ║           │     ██   ██     ██     │            ║
+       ║           │      ▀▀▀▀▀  ▀▀▀▀▀     │            ║
+       ║           │   OREGON STATE UNIV.    │            ║
+       ║           └─────────────────────────┘            ║
+       ║                                                  ║
+       ║    ISO provided by OSUOSL — osuosl.org/donate    ║
+       ╚══════════════════════════════════════════════════╝
+                         Go Beavs! 🦫
+' 22 66
 }
 
 # ─── TUI Functions ─────────────────────────────────────────────────────────────
@@ -407,7 +442,7 @@ show_main_menu() {
         --ok-label "Select" \
         --cancel-label "Build ISO" \
         --menu "\nConfigure your Arch Linux installation.\nSelect an option to modify, or press Build ISO when ready.\n" \
-        24 72 12 \
+        26 72 13 \
         "P" "★ Use Preferred Setup (recommended)" \
         "1" "Security: LUKS / Hibernate / TPM  [$(security_summary)]" \
         "2" "Desktop: Hyprland / GNOME / illogical-impulse" \
@@ -416,6 +451,7 @@ show_main_menu() {
         "5" "System: Hostname, user, locale, timezone" \
         "6" "Graphics: GPU driver selection" \
         "7" "Passwords: User & LUKS encryption  [$(password_summary)]" \
+        "8" "Sleep & Power: suspend / hibernate / hybrid  [$(sleep_summary)]" \
         "S" "Save / Load config" \
         "R" "Review configuration" \
         3>&1 1>&2 2>&3)" || return 1
@@ -737,6 +773,150 @@ configure_passwords() {
     fi
 }
 
+sleep_summary() {
+    local parts=()
+    parts+=("$SLEEP_ACTION")
+    [[ "$SLEEP_ACTION" == "suspend-then-hibernate" ]] && parts+=("${HIBERNATE_DELAY}")
+    $ENABLE_HIBERNATE_GUARD && parts+=("guard")
+    echo "${parts[*]}"
+}
+
+configure_sleep() {
+    if ! $ENABLE_HIBERNATE; then
+        dialog \
+            --title " Sleep & Power " \
+            --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+            --msgbox "\nHibernate is disabled in Security settings.\n\nEnable it first (menu item 1) to configure\nsuspend-then-hibernate and hybrid-sleep." 10 58
+        return 0
+    fi
+
+    local result
+    result="$(dialog \
+        --title " Sleep & Power Configuration " \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --menu "\nConfigure sleep, hibernate, and power behavior.\n" \
+        20 68 7 \
+        1 "Sleep action: $SLEEP_ACTION" \
+        2 "Suspend mode: $SUSPEND_MODE" \
+        3 "Hibernate delay: $HIBERNATE_DELAY  (suspend-then-hibernate)" \
+        4 "Lid close action: $LID_ACTION" \
+        5 "Idle action: $IDLE_ACTION" \
+        6 "Idle timeout: ${IDLE_TIMEOUT_SEC}s  ($(( IDLE_TIMEOUT_SEC / 60 )) min)" \
+        7 "Hibernate guard (disk space watchdog): $($ENABLE_HIBERNATE_GUARD && echo on || echo off)" \
+        3>&1 1>&2 2>&3)" || return 0
+
+    result="${result//\"/}"
+    case "$result" in
+        1) _configure_sleep_action ;;
+        2) _configure_suspend_mode ;;
+        3) _configure_hibernate_delay ;;
+        4) _configure_lid_action ;;
+        5) _configure_idle_action ;;
+        6) _configure_idle_timeout ;;
+        7) ENABLE_HIBERNATE_GUARD=$(! $ENABLE_HIBERNATE_GUARD && echo true || echo false)
+           local state_str="enabled"; $ENABLE_HIBERNATE_GUARD && state_str="enabled" || state_str="disabled"
+           dialog --title " Hibernate Guard " --msgbox "\nHibernate guard watchdog: ${state_str}\n\nWhen enabled, a systemd timer checks disk/swap usage\nevery 5 min and disables hibernate if space is too low." 10 62
+           ;;
+    esac
+}
+
+_configure_sleep_action() {
+    local result
+    result="$(dialog \
+        --title " Sleep Action " \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --radiolist "\nDefault action when the system sleeps (e.g. power button):\n" \
+        16 68 4 \
+        "suspend"                   "Suspend to RAM (fast resume, uses battery)"             "$([[ "$SLEEP_ACTION" == "suspend" ]] && echo on || echo off)" \
+        "hibernate"                 "Hibernate to disk (slow, zero power use)"               "$([[ "$SLEEP_ACTION" == "hibernate" ]] && echo on || echo off)" \
+        "suspend-then-hibernate"    "Suspend first, hibernate after delay (recommended)"     "$([[ "$SLEEP_ACTION" == "suspend-then-hibernate" ]] && echo on || echo off)" \
+        "hybrid-sleep"              "Suspend + hibernate simultaneously (safest)"            "$([[ "$SLEEP_ACTION" == "hybrid-sleep" ]] && echo on || echo off)" \
+        3>&1 1>&2 2>&3)" || return 0
+    result="${result//\"/}"
+    [[ -n "$result" ]] && SLEEP_ACTION="$result"
+}
+
+_configure_suspend_mode() {
+    local result
+    result="$(dialog \
+        --title " Suspend Mode " \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --radiolist "\nHardware suspend mode (mem_sleep):\n" \
+        12 68 2 \
+        "deep"    "S3 — traditional suspend (lower power, most compatible)"      "$([[ "$SUSPEND_MODE" == "deep" ]] && echo on || echo off)" \
+        "s2idle"  "S0ix — modern standby (faster wake, Intel recommended)"       "$([[ "$SUSPEND_MODE" == "s2idle" ]] && echo on || echo off)" \
+        3>&1 1>&2 2>&3)" || return 0
+    result="${result//\"/}"
+    [[ -n "$result" ]] && SUSPEND_MODE="$result"
+}
+
+_configure_hibernate_delay() {
+    local result
+    result="$(dialog \
+        --title " Hibernate Delay " \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --radiolist "\nTime in suspend before hibernating (suspend-then-hibernate):\n" \
+        16 68 5 \
+        "30min"   "30 minutes"    "$([[ "$HIBERNATE_DELAY" == "30min" ]] && echo on || echo off)" \
+        "60min"   "1 hour"        "$([[ "$HIBERNATE_DELAY" == "60min" ]] && echo on || echo off)" \
+        "120min"  "2 hours (recommended)"  "$([[ "$HIBERNATE_DELAY" == "120min" ]] && echo on || echo off)" \
+        "240min"  "4 hours"       "$([[ "$HIBERNATE_DELAY" == "240min" ]] && echo on || echo off)" \
+        "480min"  "8 hours"       "$([[ "$HIBERNATE_DELAY" == "480min" ]] && echo on || echo off)" \
+        3>&1 1>&2 2>&3)" || return 0
+    result="${result//\"/}"
+    [[ -n "$result" ]] && HIBERNATE_DELAY="$result"
+}
+
+_configure_lid_action() {
+    local result
+    result="$(dialog \
+        --title " Lid Close Action " \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --radiolist "\nAction when the laptop lid is closed:\n" \
+        16 68 5 \
+        "suspend"                   "Suspend to RAM"                                  "$([[ "$LID_ACTION" == "suspend" ]] && echo on || echo off)" \
+        "hibernate"                 "Hibernate to disk"                               "$([[ "$LID_ACTION" == "hibernate" ]] && echo on || echo off)" \
+        "suspend-then-hibernate"    "Suspend, then hibernate after delay"             "$([[ "$LID_ACTION" == "suspend-then-hibernate" ]] && echo on || echo off)" \
+        "lock"                      "Lock screen only"                                "$([[ "$LID_ACTION" == "lock" ]] && echo on || echo off)" \
+        "ignore"                    "Do nothing"                                      "$([[ "$LID_ACTION" == "ignore" ]] && echo on || echo off)" \
+        3>&1 1>&2 2>&3)" || return 0
+    result="${result//\"/}"
+    [[ -n "$result" ]] && LID_ACTION="$result"
+}
+
+_configure_idle_action() {
+    local result
+    result="$(dialog \
+        --title " Idle Action " \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --radiolist "\nAction after system is idle for the configured timeout:\n" \
+        14 68 4 \
+        "suspend"                   "Suspend to RAM"                                  "$([[ "$IDLE_ACTION" == "suspend" ]] && echo on || echo off)" \
+        "hibernate"                 "Hibernate to disk"                               "$([[ "$IDLE_ACTION" == "hibernate" ]] && echo on || echo off)" \
+        "suspend-then-hibernate"    "Suspend, then hibernate after delay"             "$([[ "$IDLE_ACTION" == "suspend-then-hibernate" ]] && echo on || echo off)" \
+        "ignore"                    "Do nothing"                                      "$([[ "$IDLE_ACTION" == "ignore" ]] && echo on || echo off)" \
+        3>&1 1>&2 2>&3)" || return 0
+    result="${result//\"/}"
+    [[ -n "$result" ]] && IDLE_ACTION="$result"
+}
+
+_configure_idle_timeout() {
+    local result
+    result="$(dialog \
+        --title " Idle Timeout " \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --radiolist "\nTime of inactivity before idle action triggers:\n" \
+        16 68 5 \
+        "300"   " 5 minutes"   "$([[ "$IDLE_TIMEOUT_SEC" == "300" ]]  && echo on || echo off)" \
+        "600"   "10 minutes"   "$([[ "$IDLE_TIMEOUT_SEC" == "600" ]]  && echo on || echo off)" \
+        "900"   "15 minutes (recommended)"  "$([[ "$IDLE_TIMEOUT_SEC" == "900" ]]  && echo on || echo off)" \
+        "1800"  "30 minutes"   "$([[ "$IDLE_TIMEOUT_SEC" == "1800" ]] && echo on || echo off)" \
+        "3600"  "60 minutes"   "$([[ "$IDLE_TIMEOUT_SEC" == "3600" ]] && echo on || echo off)" \
+        3>&1 1>&2 2>&3)" || return 0
+    result="${result//\"/}"
+    [[ -n "$result" ]] && IDLE_TIMEOUT_SEC="$result"
+}
+
 configure_save_load() {
     local result
     result="$(dialog \
@@ -830,50 +1010,55 @@ show_review() {
 
     # Build ii feature summary for review
     local ii_features_str=""
-    if $ENABLE_II_FEATURES; then
-        for i in "${!II_FEATURE_SELECTED[@]}"; do
-            if (( II_FEATURE_SELECTED[i] )); then
-                ii_features_str+="\n║    • ${II_FEATURE_LABELS[$i]}"
-            fi
-        done
-    fi
+    # Sleep/power summary
+    local sleep_str="$SLEEP_ACTION"
+    [[ "$SLEEP_ACTION" == "suspend-then-hibernate" ]] && sleep_str+=" (${HIBERNATE_DELAY})"
+    local guard_str="Disabled"; $ENABLE_HIBERNATE_GUARD && guard_str="Enabled"
 
     dialog \
         --title " Configuration Review " \
         --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
         --msgbox "
-╔══════════════════════════════════════════╗
-║         INSTALLATION CONFIGURATION       ║
-╠══════════════════════════════════════════╣
-║                                          ║
-║  Security                                ║
+╔══════════════════════════════════════════════╗
+║         INSTALLATION CONFIGURATION           ║
+╠══════════════════════════════════════════════╣
+║                                              ║
+║  Security                                    ║
 ║    LUKS encryption:  $luks_str
 ║    Hibernate:        $hib_str
 ║    TPM auto-unlock:  $tpm_str
-║                                          ║
-║  Desktop                                 ║
+║                                              ║
+║  Desktop                                     ║
 ║    Environments:     $de_list
 ║    illogical-impulse: $ii_str${ii_features_str}
-║                                          ║
-║  System                                  ║
+║                                              ║
+║  System                                      ║
 ║    Hostname:    $HOSTNAME_CFG
 ║    Username:    ${USERNAME_CFG:-(set during install)}
 ║    Timezone:    $TIMEZONE_CFG
 ║    GPU driver:  $GFX_DRIVER
 ║    Disk mode:   $disk_str
-║                                          ║
-║  Passwords                               ║
+║                                              ║
+║  Passwords                                   ║
 ║    User password:  $pw_user
 ║    LUKS password:  $pw_luks
-║                                          ║
-║  Post-Install (first boot):              ║
-║    • Secure Boot setup (if TPM enabled)  ║
-║    • TPM enrollment (after Secure Boot)  ║
-║    • Hibernate configuration             ║
-║    • illogical-impulse (if selected)     ║
-║                                          ║
-╚══════════════════════════════════════════╝
-" 35 55
+║                                              ║
+║  Sleep & Power                               ║
+║    Sleep action:     $sleep_str
+║    Suspend mode:     $SUSPEND_MODE
+║    Lid close:        $LID_ACTION
+║    Idle action:      $IDLE_ACTION (${IDLE_TIMEOUT_SEC}s)
+║    Hibernate guard:  $guard_str
+║                                              ║
+║  Post-Install (first boot):                  ║
+║    • Secure Boot setup (if TPM enabled)      ║
+║    • TPM enrollment (after Secure Boot)      ║
+║    • Hibernate + sleep configuration         ║
+║    • Hibernate guard service (if enabled)    ║
+║    • illogical-impulse (if selected)         ║
+║                                              ║
+╚══════════════════════════════════════════════╝
+" 42 58
 }
 
 apply_preferred() {
@@ -890,6 +1075,13 @@ apply_preferred() {
     LOCALE_CFG="en_US"
     KB_LAYOUT_CFG="us"
     GFX_DRIVER="Intel (open-source)"
+    SUSPEND_MODE="deep"
+    SLEEP_ACTION="suspend-then-hibernate"
+    HIBERNATE_DELAY="120min"
+    LID_ACTION="suspend-then-hibernate"
+    IDLE_ACTION="suspend-then-hibernate"
+    IDLE_TIMEOUT_SEC=900
+    ENABLE_HIBERNATE_GUARD=true
 }
 
 # ─── TUI Main Loop ────────────────────────────────────────────────────────────
@@ -910,6 +1102,7 @@ run_tui() {
             5) configure_system ;;
             6) configure_graphics ;;
             7) configure_passwords ;;
+            8) configure_sleep ;;
             S) configure_save_load ;;
             R) show_review ;;
         esac
@@ -1108,7 +1301,15 @@ generate_post_install() {
 # Runs automatically or manually after first login.
 # Handles: Hibernate, Secure Boot, TPM, illogical-impulse
 #
-# ISO provided by OSUOSL — osuosl.org/donate  |  Go Beavs! 🦫
+# ISO provided by OSUOSL — osuosl.org/donate  |
+# Sleep & Power
+SUSPEND_MODE="__SUSPEND_MODE__"
+SLEEP_ACTION="__SLEEP_ACTION__"
+HIBERNATE_DELAY="__HIBERNATE_DELAY__"
+LID_ACTION="__LID_ACTION__"
+IDLE_ACTION="__IDLE_ACTION__"
+IDLE_TIMEOUT_SEC="__IDLE_TIMEOUT_SEC__"
+ENABLE_HIBERNATE_GUARD="__ENABLE_HIBERNATE_GUARD__"  Go Beavs! 🦫
 ###############################################################################
 set -euo pipefail
 
@@ -1131,6 +1332,67 @@ ENABLE_II_FEATURES="__ENABLE_II_FEATURES__"
 II_SELECTED_BRANCHES="__II_SELECTED_BRANCHES__"
 
 echo ""
+
+    # ── Sleep & Power Configuration ──────────────────────────
+    step "Sleep & Power Configuration"
+
+    # Configure suspend mode (deep = S3, s2idle = S0ix)
+    info "Setting suspend mode: $SUSPEND_MODE"
+    sudo install -d -m 0755 /etc/systemd/sleep.conf.d
+    cat << SLEEPEOF | sudo tee /etc/systemd/sleep.conf.d/10-sleep-config.conf > /dev/null
+[Sleep]
+HibernateMode=shutdown
+SuspendState=mem
+HibernateDelaySec=$HIBERNATE_DELAY
+SLEEPEOF
+    log "sleep.conf.d/10-sleep-config.conf written"
+
+    # Set mem_sleep default via kernel param or sysfs
+    echo "$SUSPEND_MODE" | sudo tee /sys/power/mem_sleep > /dev/null 2>&1 || true
+    # Make persistent via tmpfiles
+    cat << TMPEOF | sudo tee /etc/tmpfiles.d/suspend-mode.conf > /dev/null
+w /sys/power/mem_sleep - - - - $SUSPEND_MODE
+TMPEOF
+    log "Suspend mode set to: $SUSPEND_MODE"
+
+    # Configure logind (lid close, idle action)
+    info "Configuring logind: lid=$LID_ACTION, idle=$IDLE_ACTION (${IDLE_TIMEOUT_SEC}s)"
+    sudo install -d -m 0755 /etc/systemd/logind.conf.d
+    cat << LOGINDEOF | sudo tee /etc/systemd/logind.conf.d/10-power-config.conf > /dev/null
+[Login]
+HandleLidSwitch=$LID_ACTION
+HandleLidSwitchExternalPower=$LID_ACTION
+HandleLidSwitchDocked=ignore
+IdleAction=$IDLE_ACTION
+IdleActionSec=${IDLE_TIMEOUT_SEC}
+LOGINDEOF
+    log "logind.conf.d/10-power-config.conf written"
+
+    # Set default sleep target
+    if [[ "$SLEEP_ACTION" == "suspend-then-hibernate" ]]; then
+        sudo systemctl enable suspend-then-hibernate.target 2>/dev/null || true
+    elif [[ "$SLEEP_ACTION" == "hybrid-sleep" ]]; then
+        sudo systemctl enable hybrid-sleep.target 2>/dev/null || true
+    fi
+    log "Default sleep action: $SLEEP_ACTION"
+fi
+
+# ── Hibernate Guard ──────────────────────────────────────
+if [[ "$ENABLE_HIBERNATE_GUARD" == "true" && "$ENABLE_HIBERNATE" == "true" ]]; then
+    step "Hibernate Guard (disk space watchdog)"
+
+    if [[ -f "$SCRIPT_DIR/hibernate-guard.sh" ]]; then
+        sudo install -m 0755 "$SCRIPT_DIR/hibernate-guard.sh" /usr/local/bin/hibernate-guard.sh
+        sudo install -m 0644 "$SCRIPT_DIR/hibernate-guard.service" /etc/systemd/system/hibernate-guard.service
+        sudo install -m 0644 "$SCRIPT_DIR/hibernate-guard.timer" /etc/systemd/system/hibernate-guard.timer
+        [[ -f "$SCRIPT_DIR/hibernate-guard.conf" ]] && \
+            sudo install -m 0644 "$SCRIPT_DIR/hibernate-guard.conf" /etc/conf.d/hibernate-guard
+        sudo systemctl daemon-reload
+        sudo systemctl enable --now hibernate-guard.timer
+        log "hibernate-guard.timer enabled (checks every 5 min)"
+    else
+        warn "hibernate-guard.sh not found — skipping"
+    fi
 echo -e "${BOLD}${CYAN}╔══════════════════════════════════════════════════════╗${RST}"
 echo -e "${BOLD}${CYAN}║      Arch Linux Post-Install Configuration          ║${RST}"
 echo -e "${BOLD}${CYAN}║      ISO provided by OSUOSL — Go Beavs! 🦫          ║${RST}"
@@ -1189,7 +1451,9 @@ if [[ "$ENABLE_TPM" == "true" ]]; then
                 fi
             else
                 err "setup-secureboot.sh not found"
-            fi
+            fi, auto-sized to RAM)"
+[[ "$ENABLE_HIBERNATE" == "true" ]] && echo "  ✓ Sleep: ${SLEEP_ACTION} (suspend=${SUSPEND_MODE}, lid=${LID_ACTION})"
+[[ "$ENABLE_HIBERNATE_GUARD" == "true" && "$ENABLE_HIBERNATE" == "true" ]] && echo "  ✓ Hibernate guard (disk space watchdog
         elif echo "$SB_STATUS" | grep -q "Secure Boot:.*Enabled"; then
             info "Secure Boot is already enabled"
 
@@ -1215,6 +1479,13 @@ if [[ "$ENABLE_TPM" == "true" ]]; then
         warn "sbctl not installed — install with: sudo pacman -S sbctl"
     fi
 fi
+    sed -i "s|__SUSPEND_MODE__|$SUSPEND_MODE|g" "$target"
+    sed -i "s|__SLEEP_ACTION__|$SLEEP_ACTION|g" "$target"
+    sed -i "s|__HIBERNATE_DELAY__|$HIBERNATE_DELAY|g" "$target"
+    sed -i "s|__LID_ACTION__|$LID_ACTION|g" "$target"
+    sed -i "s|__IDLE_ACTION__|$IDLE_ACTION|g" "$target"
+    sed -i "s|__IDLE_TIMEOUT_SEC__|$IDLE_TIMEOUT_SEC|g" "$target"
+    sed -i "s|__ENABLE_HIBERNATE_GUARD__|$ENABLE_HIBERNATE_GUARD|g" "$target"
 
 # ── illogical-impulse ────────────────────────────────────
 if [[ "$ENABLE_II" == "true" ]]; then
@@ -1339,6 +1610,7 @@ echo ""
 echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}                                                        ${RST}"
 echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}    Arch Linux Zero-Touch Installer                      ${RST}"
 echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}    ISO provided by OSUOSL — osuosl.org/donate           ${RST}"
+echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}    ISO provided by OSUOSL — osuosl.org/donate           ${RST}"
 echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}                              Go Beavs! 🦫                ${RST}"
 echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}                                                        ${RST}"
 echo ""
@@ -1430,6 +1702,9 @@ if [[ -d "$MOUNT_POINT" ]]; then
     POST_DIR="$MOUNT_POINT/root/arch-autoinstall"
     mkdir -p "$POST_DIR"
     cp "$SCRIPT_DIR"/scripts/*.sh "$POST_DIR/" 2>/dev/null || true
+    cp "$SCRIPT_DIR"/scripts/*.service "$POST_DIR/" 2>/dev/null || true
+    cp "$SCRIPT_DIR"/scripts/*.timer "$POST_DIR/" 2>/dev/null || true
+    cp "$SCRIPT_DIR"/scripts/*.conf "$POST_DIR/" 2>/dev/null || true
     cp "$SCRIPT_DIR/post-install.sh" "$POST_DIR/" 2>/dev/null || true
     chmod +x "$POST_DIR"/*.sh 2>/dev/null || true
 
@@ -1564,9 +1839,15 @@ customize_iso() {
     sudo cp -r "$config_stage/"* "$install_dir/config/"
 
     # Copy scripts
-    for script in enable_hibernate_swapfile.sh setup-secureboot.sh setup-tpm-unlock.sh; do
+    for script in enable_hibernate_swapfile.sh setup-secureboot.sh setup-tpm-unlock.sh hibernate-guard.sh; do
         if [[ -f "$SCRIPT_DIR/scripts/$script" ]]; then
             sudo cp "$SCRIPT_DIR/scripts/$script" "$install_dir/scripts/"
+        fi
+    done
+    # Copy hibernate-guard systemd units and config
+    for f in hibernate-guard.service hibernate-guard.timer hibernate-guard.conf; do
+        if [[ -f "$SCRIPT_DIR/scripts/$f" ]]; then
+            sudo cp "$SCRIPT_DIR/scripts/$f" "$install_dir/scripts/"
         fi
     done
 
