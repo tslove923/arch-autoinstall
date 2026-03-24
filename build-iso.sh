@@ -57,6 +57,43 @@ USE_PREFERRED=false
 SKIP_DOWNLOAD=false
 OUTPUT_ISO=""
 
+# ─── illogical-impulse feature catalog ─────────────────────────────────────────
+# Mirrors the catalog in dots-hyprland-dev/apply-features.sh
+II_FEATURE_BRANCHES=(
+    "fix/wifi-reconnect-after-password"
+    "feature/mpris-active-player-fix-main"
+    "feature/copilot-integration"
+    "feature/custom-configs"
+    "feature/us-clock-view-worldclocks"
+    "feature/homeassistant-integration"
+    "feature/gpu-npu-monitoring"
+    "feature/vpn-indicator"
+)
+II_FEATURE_LABELS=(
+    "WiFi Reconnect Fix"
+    "MPRIS Active Player Fix"
+    "Copilot Integration"
+    "Custom Configs & Keybinds"
+    "US Date & World Clocks"
+    "Home Assistant Panel"
+    "GPU/NPU Monitoring"
+    "VPN Status Indicator"
+)
+II_FEATURE_DESCS=(
+    "Auto-reconnect WiFi after entering saved password"
+    "Fix media controls to target the active player"
+    "GitHub Copilot AI panel in sidebar"
+    "Custom keybinds, scripts, xwayland, Docker/VPN/proxy toggles"
+    "US date format in sidebar + configurable world clocks"
+    "Home Assistant smart home panel in bar"
+    "Intel GPU + NPU utilization indicators in resource bar"
+    "WireGuard/OpenVPN status icon with toggle in bar"
+)
+# Dependencies: index of required branch, or -1 for none
+II_FEATURE_DEPS=( -1 -1 -1 -1 3 3 -1 -1 )
+# Track selected features (1=on, 0=off) — all on by default
+II_FEATURE_SELECTED=( 1 1 1 1 1 1 1 1 )
+
 # ─── Parse arguments ───────────────────────────────────────────────────────────
 for arg in "$@"; do
     case "$arg" in
@@ -89,6 +126,50 @@ check_deps() {
     fi
 }
 
+# ─── dialog color theme ────────────────────────────────────────────────────────
+# Black background, white text, orange (#cc3c09 ≈ color 166) accents
+setup_dialog_colors() {
+    export DIALOGRC="$(mktemp)"
+    cat > "$DIALOGRC" << 'DLGEOF'
+# Arch Autoinstall — Black + White + Orange theme
+use_shadow = OFF
+use_colors = ON
+screen_color = (WHITE,BLACK,ON)
+title_color = (WHITE,BLACK,ON)
+border_color = (WHITE,BLACK,ON)
+window_color = (WHITE,BLACK,OFF)
+shadow_color = (BLACK,BLACK,ON)
+dialog_color = (WHITE,BLACK,OFF)
+button_active_color = (WHITE,RED,ON)
+button_inactive_color = (BLACK,WHITE,OFF)
+button_key_inactive_color = (RED,WHITE,OFF)
+button_key_active_color = (WHITE,RED,ON)
+button_label_active_color = (WHITE,RED,ON)
+button_label_inactive_color = (BLACK,WHITE,ON)
+form_active_color = (WHITE,RED,ON)
+form_inactive_color = (WHITE,BLACK,OFF)
+form_item_readonly_color = (CYAN,BLACK,ON)
+inputbox_color = (WHITE,BLACK,OFF)
+inputbox_border_color = (WHITE,BLACK,ON)
+searchbox_color = (WHITE,BLACK,OFF)
+searchbox_title_color = (WHITE,BLACK,ON)
+searchbox_border_color = (WHITE,BLACK,ON)
+position_indicator_color = (RED,BLACK,ON)
+menubox_color = (WHITE,BLACK,OFF)
+menubox_border_color = (WHITE,BLACK,ON)
+item_color = (WHITE,BLACK,OFF)
+item_selected_color = (WHITE,RED,ON)
+tag_color = (RED,BLACK,ON)
+tag_selected_color = (WHITE,RED,ON)
+tag_key_color = (RED,BLACK,ON)
+tag_key_selected_color = (WHITE,RED,ON)
+check_color = (WHITE,BLACK,OFF)
+check_selected_color = (WHITE,RED,ON)
+uarrow_color = (RED,BLACK,ON)
+darrow_color = (RED,BLACK,ON)
+DLGEOF
+}
+
 # ─── OSUOSL Banner ────────────────────────────────────────────────────────────
 show_banner() {
     # Orange background (#cc3c09) approximation with ANSI
@@ -118,20 +199,27 @@ show_banner() {
 # ─── TUI Functions ─────────────────────────────────────────────────────────────
 
 show_main_menu() {
+    local ii_count=0 ii_total=${#II_FEATURE_BRANCHES[@]}
+    for s in "${II_FEATURE_SELECTED[@]}"; do (( s )) && (( ii_count++ )); done
+    local ii_summary="off"
+    $ENABLE_II_FEATURES && ii_summary="${ii_count}/${ii_total} features"
+    $ENABLE_II && [[ $ENABLE_II_FEATURES == false ]] && ii_summary="base only"
+
     local result
     result="$(dialog \
         --title " Arch Autoinstaller — Configuration " \
-        --backtitle "ISO provided by OSUOSL — osuosl.org/donate  |  Go Beavs!" \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
         --ok-label "Select" \
         --cancel-label "Build ISO" \
         --menu "\nConfigure your Arch Linux installation.\nSelect an option to modify, or press Build ISO when ready.\n" \
-        20 70 10 \
+        22 72 10 \
         "P" "★ Use Preferred Setup (recommended)" \
         "1" "Security: LUKS / Hibernate / TPM  [$(security_summary)]" \
         "2" "Desktop: Hyprland / GNOME / illogical-impulse" \
-        "3" "Disk: Target disk selection" \
-        "4" "System: Hostname, user, locale, timezone" \
-        "5" "Graphics: GPU driver selection" \
+        "3" "illogical-impulse features  [$ii_summary]" \
+        "4" "Disk: Target disk selection" \
+        "5" "System: Hostname, user, locale, timezone" \
+        "6" "Graphics: GPU driver selection" \
         "R" "Review configuration" \
         3>&1 1>&2 2>&3)" || return 1
     echo "$result"
@@ -154,7 +242,7 @@ configure_security() {
     local result
     result="$(dialog \
         --title " Security Options " \
-        --backtitle "ISO provided by OSUOSL — osuosl.org/donate  |  Go Beavs!" \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
         --checklist "\nSelect security features.\nHibernate requires LUKS+btrfs. TPM requires LUKS.\n" \
         14 65 3 \
         "${args[@]}" \
@@ -189,7 +277,7 @@ configure_desktop() {
     local result
     result="$(dialog \
         --title " Desktop Environment " \
-        --backtitle "ISO provided by OSUOSL — osuosl.org/donate  |  Go Beavs!" \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
         --checklist "\nSelect desktop environments to install.\n" \
         12 60 2 \
         "${args[@]}" \
@@ -217,7 +305,7 @@ configure_illogical_impulse() {
     local result
     result="$(dialog \
         --title " Hyprland Customization " \
-        --backtitle "ISO provided by OSUOSL — osuosl.org/donate  |  Go Beavs!" \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
         --radiolist "\nSelect Hyprland rice level:\n" \
         14 65 3 \
         1 "Vanilla Hyprland (no rice)" "$([[ $ENABLE_II == false ]] && echo on || echo off)" \
@@ -230,17 +318,95 @@ configure_illogical_impulse() {
         1) ENABLE_II=false; ENABLE_II_FEATURES=false ;;
         2) ENABLE_II=true;  ENABLE_II_FEATURES=false ;;
         3) ENABLE_II=true; ENABLE_II_FEATURES=true
-           # Offer the feature picker from dots-hyprland-dev
-           dialog --msgbox "After first boot, run apply-features.sh to select\nwhich illogical-impulse features to enable.\n\nThe feature picker TUI will be installed at:\n  ~/projects/dots-hyprland-dev/apply-features.sh" 10 58
+           # Jump straight to feature picker
+           configure_ii_features
            ;;
     esac
+}
+
+configure_ii_features() {
+    if ! $ENABLE_II || ! $ENABLE_II_FEATURES; then
+        dialog \
+            --title " illogical-impulse Features " \
+            --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+            --msgbox "\nillogical-impulse + custom features must be enabled first.\nGo to Desktop → Hyprland Customization and select option 3." 9 62
+        return 0
+    fi
+
+    # Build checklist from the feature catalog
+    local -a args=()
+    local i
+    for i in "${!II_FEATURE_BRANCHES[@]}"; do
+        local dep=${II_FEATURE_DEPS[$i]}
+        local dep_note=""
+        if (( dep >= 0 )); then
+            dep_note=" [requires: ${II_FEATURE_LABELS[$dep]}]"
+        fi
+        local state="off"
+        (( II_FEATURE_SELECTED[i] )) && state="on"
+        args+=( "$i" "${II_FEATURE_LABELS[$i]}  —  ${II_FEATURE_DESCS[$i]}${dep_note}" "$state" )
+    done
+
+    local result
+    result="$(dialog \
+        --title " illogical-impulse Feature Picker " \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --checklist "\nSelect which custom feature branches to include.\nDependencies will be auto-enabled.\n" \
+        22 78 ${#II_FEATURE_BRANCHES[@]} \
+        "${args[@]}" \
+        3>&1 1>&2 2>&3)" || return 0
+
+    # Reset all to 0, then enable selected
+    for i in "${!II_FEATURE_SELECTED[@]}"; do
+        II_FEATURE_SELECTED[$i]=0
+    done
+    for item in $result; do
+        item="${item//\"/}"
+        II_FEATURE_SELECTED[$item]=1
+    done
+
+    # Auto-enable dependencies
+    local changed=true
+    while $changed; do
+        changed=false
+        for i in "${!II_FEATURE_SELECTED[@]}"; do
+            if (( II_FEATURE_SELECTED[i] )); then
+                local dep=${II_FEATURE_DEPS[$i]}
+                if (( dep >= 0 )) && (( ! II_FEATURE_SELECTED[dep] )); then
+                    II_FEATURE_SELECTED[$dep]=1
+                    changed=true
+                fi
+            fi
+        done
+    done
+
+    # Show what was auto-enabled
+    local auto_msg=""
+    for i in "${!II_FEATURE_SELECTED[@]}"; do
+        if (( II_FEATURE_SELECTED[i] )); then
+            local was_in_result=false
+            for item in $result; do
+                item="${item//\"/}"
+                [[ "$item" == "$i" ]] && was_in_result=true
+            done
+            if ! $was_in_result; then
+                auto_msg+="\n  • ${II_FEATURE_LABELS[$i]} (dependency)"
+            fi
+        fi
+    done
+    if [[ -n "$auto_msg" ]]; then
+        dialog \
+            --title " Auto-enabled Dependencies " \
+            --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+            --msgbox "\nThe following features were auto-enabled as dependencies:${auto_msg}" 12 60
+    fi
 }
 
 configure_disk() {
     local result
     result="$(dialog \
         --title " Disk Selection " \
-        --backtitle "ISO provided by OSUOSL — osuosl.org/donate  |  Go Beavs!" \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
         --radiolist "\nHow should the installer select the target disk?\n" \
         12 65 2 \
         1 "Automatic (largest available disk)" "$($AUTO_DISK && echo on || echo off)" \
@@ -258,7 +424,7 @@ configure_system() {
     local result
     result="$(dialog \
         --title " System Configuration " \
-        --backtitle "ISO provided by OSUOSL — osuosl.org/donate  |  Go Beavs!" \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
         --form "\nSet system parameters:\n" \
         16 60 5 \
         "Hostname:"  1 1 "$HOSTNAME_CFG"  1 15 30 60 \
@@ -282,7 +448,7 @@ configure_graphics() {
     local result
     result="$(dialog \
         --title " Graphics Driver " \
-        --backtitle "ISO provided by OSUOSL — osuosl.org/donate  |  Go Beavs!" \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
         --radiolist "\nSelect GPU driver:\n" \
         14 55 5 \
         1 "Intel (open-source)" "$([[ "$GFX_DRIVER" == "Intel (open-source)" ]] && echo on || echo off)" \
@@ -315,9 +481,19 @@ show_review() {
     $ENABLE_II && ii_str="Yes"
     $ENABLE_II_FEATURES && ii_str="Yes + custom features"
 
+    # Build ii feature summary for review
+    local ii_features_str=""
+    if $ENABLE_II_FEATURES; then
+        for i in "${!II_FEATURE_SELECTED[@]}"; do
+            if (( II_FEATURE_SELECTED[i] )); then
+                ii_features_str+="\n║    • ${II_FEATURE_LABELS[$i]}"
+            fi
+        done
+    fi
+
     dialog \
         --title " Configuration Review " \
-        --backtitle "ISO provided by OSUOSL — osuosl.org/donate  |  Go Beavs!" \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
         --msgbox "
 ╔══════════════════════════════════════════╗
 ║         INSTALLATION CONFIGURATION       ║
@@ -330,7 +506,7 @@ show_review() {
 ║                                          ║
 ║  Desktop                                 ║
 ║    Environments:     $de_list
-║    illogical-impulse: $ii_str
+║    illogical-impulse: $ii_str${ii_features_str}
 ║                                          ║
 ║  System                                  ║
 ║    Hostname:    $HOSTNAME_CFG
@@ -346,7 +522,7 @@ show_review() {
 ║    • illogical-impulse (if selected)     ║
 ║                                          ║
 ╚══════════════════════════════════════════╝
-" 32 50
+" 35 55
 }
 
 apply_preferred() {
@@ -374,13 +550,14 @@ run_tui() {
 
         case "$choice" in
             P) apply_preferred
-               dialog --msgbox "Preferred configuration applied!\n\n• LUKS + Hibernate + TPM\n• Hyprland + GNOME\n• illogical-impulse + features\n• Auto disk, US/Pacific, Intel GPU" 12 50
+               dialog --msgbox "Preferred configuration applied!\n\n• LUKS + Hibernate + TPM\n• Hyprland + GNOME\n• illogical-impulse + all features\n• Auto disk, US/Pacific, Intel GPU" 12 50
                ;;
             1) configure_security ;;
             2) configure_desktop ;;
-            3) configure_disk ;;
-            4) configure_system ;;
-            5) configure_graphics ;;
+            3) configure_ii_features ;;
+            4) configure_disk ;;
+            5) configure_system ;;
+            6) configure_graphics ;;
             R) show_review ;;
         esac
     done
@@ -575,6 +752,8 @@ ENABLE_HIBERNATE="__ENABLE_HIBERNATE__"
 ENABLE_TPM="__ENABLE_TPM__"
 ENABLE_II="__ENABLE_II__"
 ENABLE_II_FEATURES="__ENABLE_II_FEATURES__"
+# Selected feature branches (set by build-iso.sh feature picker)
+II_SELECTED_BRANCHES="__II_SELECTED_BRANCHES__"
 
 echo ""
 echo -e "${BOLD}${CYAN}╔══════════════════════════════════════════════════════╗${RST}"
@@ -686,7 +865,26 @@ if [[ "$ENABLE_II" == "true" ]]; then
         err "setup script not found in dots-hyprland-dev"
     fi
 
-    if [[ "$ENABLE_II_FEATURES" == "true" ]]; then
+    if [[ "$ENABLE_II_FEATURES" == "true" && -n "$II_SELECTED_BRANCHES" ]]; then
+        info "Applying selected custom feature branches..."
+        info "Branches: $II_SELECTED_BRANCHES"
+        
+        # Fetch all feature branches
+        git fetch origin --all
+        for branch in $(echo "$II_SELECTED_BRANCHES" | tr ',' '\n'); do
+            git branch "$branch" "origin/$branch" 2>/dev/null || true
+        done
+
+        if [[ -f apply-features.sh ]]; then
+            # Run apply-features.sh with the pre-selected branches
+            info "Running apply-features.sh --all to deploy selected features..."
+            chmod +x apply-features.sh
+            ./apply-features.sh --all
+            log "Custom features applied"
+        else
+            log "Feature branches fetched — run apply-features.sh manually to deploy"
+        fi
+    elif [[ "$ENABLE_II_FEATURES" == "true" ]]; then
         info "Custom features will be available via apply-features.sh"
         info "Run: cd ~/projects/dots-hyprland-dev && ./apply-features.sh"
         
@@ -726,6 +924,16 @@ POSTEOF
     sed -i "s|__ENABLE_TPM__|$ENABLE_TPM|g" "$target"
     sed -i "s|__ENABLE_II__|$ENABLE_II|g" "$target"
     sed -i "s|__ENABLE_II_FEATURES__|$ENABLE_II_FEATURES|g" "$target"
+
+    # Build comma-separated list of selected ii branches
+    local ii_branch_list=""
+    for i in "${!II_FEATURE_SELECTED[@]}"; do
+        if (( II_FEATURE_SELECTED[i] )); then
+            [[ -n "$ii_branch_list" ]] && ii_branch_list+=","
+            ii_branch_list+="${II_FEATURE_BRANCHES[$i]}"
+        fi
+    done
+    sed -i "s|__II_SELECTED_BRANCHES__|${ii_branch_list}|g" "$target"
 
     log "Generated post-install script: $target"
 }
@@ -1055,6 +1263,7 @@ HOOKEOF
 # ═══════════════════════════════════════════════════════════════════════════════
 
 check_deps
+setup_dialog_colors
 
 show_banner
 

@@ -2,8 +2,6 @@
 
 **Zero-touch Arch Linux installer builder with TUI configuration.**
 
-ISO provided by [OSUOSL](https://osuosl.org/donate) — Go Beavs! 🦫
-
 ## Overview
 
 This project builds a customized Arch Linux ISO that performs automated
@@ -33,7 +31,7 @@ The builder will:
 1. Present a TUI to configure your installation
 2. Download the latest Arch ISO from [OSUOSL](https://ftp.osuosl.org/pub/archlinux/iso/latest/)
 3. Customize the ISO with your archinstall configuration
-4. Output a self-installing ISO ready to flash to USB
+4. Output a modified ISO named `arch-autoinstall-<timestamp>.iso`
 
 ## Flashing to USB
 
@@ -41,7 +39,8 @@ The builder will:
 sudo dd if=out/arch-autoinstall-*.iso of=/dev/sdX bs=4M status=progress
 ```
 
-Replace `/dev/sdX` with your USB drive.
+Replace `/dev/sdX` with your USB drive. The output filename always contains
+`autoinstall` to distinguish it from the upstream Arch ISO.
 
 ## What Gets Installed
 
@@ -54,12 +53,32 @@ Replace `/dev/sdX` with your USB drive.
 ### Desktop (configurable)
 - **Hyprland** — tiling Wayland compositor with polkit
 - **GNOME** — full desktop environment
-- **illogical-impulse** — comprehensive Hyprland rice (optional)
+- **illogical-impulse** — comprehensive Hyprland rice with per-feature selection
 
 ### Security (configurable)
 - **LUKS** — full-disk encryption (required for hibernate & TPM)
 - **Hibernate** — btrfs `@swap` subvolume with 40G swapfile
 - **TPM2** — auto-unlock bound to Secure Boot state (PCR 0+7)
+
+### illogical-impulse Feature Picker
+
+When selecting "illogical-impulse + custom features", the TUI presents a
+built-in feature picker with the same catalog as `apply-features.sh`:
+
+| Feature | Description |
+|---------|-------------|
+| WiFi Reconnect Fix | Auto-reconnect WiFi after entering saved password |
+| MPRIS Active Player Fix | Fix media controls to target the active player |
+| Copilot Integration | GitHub Copilot AI panel in sidebar |
+| Custom Configs & Keybinds | Custom keybinds, xwayland, Docker/VPN/proxy toggles |
+| US Date & World Clocks | US date format + configurable world clocks |
+| Home Assistant Panel | Home Assistant smart home panel in bar |
+| GPU/NPU Monitoring | Intel GPU + NPU utilization indicators in bar |
+| VPN Status Indicator | WireGuard/OpenVPN status icon with toggle |
+
+Dependencies are auto-resolved (e.g. selecting Home Assistant auto-enables
+Custom Configs). Selected features are baked into the ISO and applied
+automatically during post-install.
 
 ## Post-Install Flow
 
@@ -72,7 +91,7 @@ After the automated install completes and you reboot:
    - Secure Boot key creation and enrollment (if firmware is in Setup Mode)
    - Reboot prompt to enable Secure Boot in BIOS
    - TPM enrollment (after Secure Boot is active)
-   - illogical-impulse clone and setup
+   - illogical-impulse clone, setup, and feature branch deployment
 
 ### Secure Boot + TPM Workflow
 
@@ -113,7 +132,7 @@ arch-autoinstall/
 | TPM auto-unlock | ✅ On | Bound to Secure Boot state |
 | Hyprland | ✅ On | Tiling Wayland compositor |
 | GNOME | ✅ On | Full desktop environment |
-| illogical-impulse | ✅ On | Hyprland rice with custom features |
+| illogical-impulse | ✅ On | Hyprland rice with per-feature picker |
 | Disk selection | Auto | Largest non-removable disk |
 | GPU driver | Intel | Open-source Intel drivers |
 | Timezone | US/Pacific | — |
@@ -132,15 +151,28 @@ arch-autoinstall/
 - The archinstall config uses `luks` encryption type (not `luks_on_lvm`)
   which is required for hibernate `resume=` to work with a direct block device
 - The `@swap` subvolume is necessary for systemd ≥259 hibernate support
-- OSUOSL mirror is hardcoded — it's fast and reliable for Oregon-based installs
+- The output ISO is always named `arch-autoinstall-<timestamp>.iso` and has
+  volume ID `ARCH_AUTOINSTALL` to clearly indicate it's been modified
 - The ISO auto-launches the installer on boot; press `n` to drop to a shell
-
-## Credits
-
-- ISO hosting: [Oregon State University Open Source Lab](https://osuosl.org/donate)
-- Hyprland rice: [end-4/dots-hyprland (illogical-impulse)](https://github.com/end-4/dots-hyprland)
-- Arch Linux: [archlinux.org](https://archlinux.org)
 
 ---
 
-*Go Beavs! 🦫*
+## Credits & Acknowledgments
+
+- Hyprland rice: [end-4/dots-hyprland (illogical-impulse)](https://github.com/end-4/dots-hyprland)
+- Arch Linux: [archlinux.org](https://archlinux.org)
+
+### ISO Hosting
+
+ISO downloads provided by the **Oregon State University Open Source Lab**.
+
+<p align="center">
+  <a href="https://osuosl.org/donate">
+    <img src="https://osuosl.org/images/OSU_newlogo.png" alt="Oregon State University Open Source Lab" width="300">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://osuosl.org/donate">osuosl.org/donate</a><br>
+  <strong>Go Beavs! 🦫</strong>
+</p>
