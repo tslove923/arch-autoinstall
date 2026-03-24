@@ -317,7 +317,7 @@ prompt_save_credentials() {
     local result
     result="$(dialog \
         --title " Save Credentials " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nSave passwords for future builds?\n\nEncrypted uses GPG (AES-256 symmetric).\nPlaintext is chmod 600 but visible on disk.\n" \
         15 62 3 \
         1 "Don't save credentials" on \
@@ -400,32 +400,6 @@ gauge_color = (WHITE,RED,ON)
 DLGEOF
 }
 
-# ─── OSUOSL Banner ────────────────────────────────────────────────────────────
-show_banner() {
-    # Show as a dialog msgbox so it stays on screen until user presses OK
-    dialog \
-        --title "" \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
-        --ok-label "Continue" \
-        --msgbox '
-       ╔══════════════════════════════════════════════════╗
-       ║      Arch Linux Zero-Touch Installer Builder     ║
-       ║                                                  ║
-       ║           ┌─────────────────────────┐            ║
-       ║           │      ▄▄▄▄▄   ▄▄▄▄▄     │            ║
-       ║           │     ██   ██ ██          │            ║
-       ║           │     ██   ██  ▀▀▀██     │            ║
-       ║           │     ██   ██     ██     │            ║
-       ║           │      ▀▀▀▀▀  ▀▀▀▀▀     │            ║
-       ║           │   OREGON STATE UNIV.    │            ║
-       ║           └─────────────────────────┘            ║
-       ║                                                  ║
-       ║    ISO provided by OSUOSL — osuosl.org/donate    ║
-       ╚══════════════════════════════════════════════════╝
-                         Go Beavs! 🦫
-' 22 66
-}
-
 # ─── TUI Functions ─────────────────────────────────────────────────────────────
 
 show_main_menu() {
@@ -437,8 +411,8 @@ show_main_menu() {
 
     local result
     result="$(dialog \
-        --title " Arch Autoinstaller — Configuration " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --title " osuosl.org/donate — Go Beavs! 🦫 " \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --ok-label "Select" \
         --cancel-label "Build ISO" \
         --menu "\nConfigure your Arch Linux installation.\nSelect an option to modify, or press Build ISO when ready.\n" \
@@ -475,7 +449,7 @@ configure_security() {
     local result
     result="$(dialog \
         --title " Security Options " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --checklist "\nSelect security features.\nHibernate requires LUKS+btrfs. TPM requires LUKS.\n" \
         14 65 3 \
         "${args[@]}" \
@@ -510,7 +484,7 @@ configure_desktop() {
     local result
     result="$(dialog \
         --title " Desktop Environment " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --checklist "\nSelect desktop environments to install.\n" \
         12 60 2 \
         "${args[@]}" \
@@ -538,7 +512,7 @@ configure_illogical_impulse() {
     local result
     result="$(dialog \
         --title " Hyprland Customization " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nSelect Hyprland rice level:\n" \
         14 65 3 \
         1 "Vanilla Hyprland (no rice)" "$([[ $ENABLE_II == false ]] && echo on || echo off)" \
@@ -561,7 +535,7 @@ configure_ii_features() {
     if ! $ENABLE_II || ! $ENABLE_II_FEATURES; then
         dialog \
             --title " illogical-impulse Features " \
-            --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+            --backtitle "Arch Linux Autoinstaller Configuration" \
             --msgbox "\nillogical-impulse + custom features must be enabled first.\nGo to Desktop → Hyprland Customization and select option 3." 9 62
         return 0
     fi
@@ -583,7 +557,7 @@ configure_ii_features() {
     local result
     result="$(dialog \
         --title " illogical-impulse Feature Picker " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --checklist "\nSelect which custom feature branches to include.\nDependencies will be auto-enabled.\n" \
         22 78 ${#II_FEATURE_BRANCHES[@]} \
         "${args[@]}" \
@@ -630,7 +604,7 @@ configure_ii_features() {
     if [[ -n "$auto_msg" ]]; then
         dialog \
             --title " Auto-enabled Dependencies " \
-            --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+            --backtitle "Arch Linux Autoinstaller Configuration" \
             --msgbox "\nThe following features were auto-enabled as dependencies:${auto_msg}" 12 60
     fi
 }
@@ -639,7 +613,7 @@ configure_disk() {
     local result
     result="$(dialog \
         --title " Disk Selection " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nHow should the installer select the target disk?\n" \
         12 65 2 \
         1 "Automatic (largest available disk)" "$($AUTO_DISK && echo on || echo off)" \
@@ -657,7 +631,7 @@ configure_system() {
     local result
     result="$(dialog \
         --title " System Configuration " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --form "\nSet system parameters:\n" \
         16 60 5 \
         "Hostname:"  1 1 "$HOSTNAME_CFG"  1 15 30 60 \
@@ -681,7 +655,7 @@ configure_graphics() {
     local result
     result="$(dialog \
         --title " Graphics Driver " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nSelect GPU driver:\n" \
         14 55 5 \
         1 "Intel (open-source)" "$([[ "$GFX_DRIVER" == "Intel (open-source)" ]] && echo on || echo off)" \
@@ -715,7 +689,7 @@ configure_passwords() {
     local pw1 pw2
     pw1="$(dialog \
         --title " User Password " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --insecure \
         --passwordbox "\nEnter password for user '${USERNAME_CFG:-<username>}'.\nLeave blank to be prompted during install.\n" \
         10 55 \
@@ -724,7 +698,7 @@ configure_passwords() {
     if [[ -n "$pw1" ]]; then
         pw2="$(dialog \
             --title " Confirm User Password " \
-            --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+            --backtitle "Arch Linux Autoinstaller Configuration" \
             --insecure \
             --passwordbox "\nConfirm password:" \
             9 55 \
@@ -745,7 +719,7 @@ configure_passwords() {
     if $ENABLE_LUKS; then
         pw1="$(dialog \
             --title " LUKS Encryption Password " \
-            --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+            --backtitle "Arch Linux Autoinstaller Configuration" \
             --insecure \
             --passwordbox "\nEnter disk encryption (LUKS) password.\nLeave blank to be prompted during install.\n\nThis is the password you type at every boot\n(until TPM auto-unlock is configured).\n" \
             13 58 \
@@ -754,7 +728,7 @@ configure_passwords() {
         if [[ -n "$pw1" ]]; then
             pw2="$(dialog \
                 --title " Confirm LUKS Password " \
-                --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+                --backtitle "Arch Linux Autoinstaller Configuration" \
                 --insecure \
                 --passwordbox "\nConfirm LUKS password:" \
                 9 55 \
@@ -785,7 +759,7 @@ configure_sleep() {
     if ! $ENABLE_HIBERNATE; then
         dialog \
             --title " Sleep & Power " \
-            --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+            --backtitle "Arch Linux Autoinstaller Configuration" \
             --msgbox "\nHibernate is disabled in Security settings.\n\nEnable it first (menu item 1) to configure\nsuspend-then-hibernate and hybrid-sleep." 10 58
         return 0
     fi
@@ -793,7 +767,7 @@ configure_sleep() {
     local result
     result="$(dialog \
         --title " Sleep & Power Configuration " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --menu "\nConfigure sleep, hibernate, and power behavior.\n" \
         20 68 7 \
         1 "Sleep action: $SLEEP_ACTION" \
@@ -824,7 +798,7 @@ _configure_sleep_action() {
     local result
     result="$(dialog \
         --title " Sleep Action " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nDefault action when the system sleeps (e.g. power button):\n" \
         16 68 4 \
         "suspend"                   "Suspend to RAM (fast resume, uses battery)"             "$([[ "$SLEEP_ACTION" == "suspend" ]] && echo on || echo off)" \
@@ -840,7 +814,7 @@ _configure_suspend_mode() {
     local result
     result="$(dialog \
         --title " Suspend Mode " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nHardware suspend mode (mem_sleep):\n" \
         12 68 2 \
         "deep"    "S3 — traditional suspend (lower power, most compatible)"      "$([[ "$SUSPEND_MODE" == "deep" ]] && echo on || echo off)" \
@@ -854,7 +828,7 @@ _configure_hibernate_delay() {
     local result
     result="$(dialog \
         --title " Hibernate Delay " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nTime in suspend before hibernating (suspend-then-hibernate):\n" \
         16 68 5 \
         "30min"   "30 minutes"    "$([[ "$HIBERNATE_DELAY" == "30min" ]] && echo on || echo off)" \
@@ -871,7 +845,7 @@ _configure_lid_action() {
     local result
     result="$(dialog \
         --title " Lid Close Action " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nAction when the laptop lid is closed:\n" \
         16 68 5 \
         "suspend"                   "Suspend to RAM"                                  "$([[ "$LID_ACTION" == "suspend" ]] && echo on || echo off)" \
@@ -888,7 +862,7 @@ _configure_idle_action() {
     local result
     result="$(dialog \
         --title " Idle Action " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nAction after system is idle for the configured timeout:\n" \
         14 68 4 \
         "suspend"                   "Suspend to RAM"                                  "$([[ "$IDLE_ACTION" == "suspend" ]] && echo on || echo off)" \
@@ -904,7 +878,7 @@ _configure_idle_timeout() {
     local result
     result="$(dialog \
         --title " Idle Timeout " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nTime of inactivity before idle action triggers:\n" \
         16 68 5 \
         "300"   " 5 minutes"   "$([[ "$IDLE_TIMEOUT_SEC" == "300" ]]  && echo on || echo off)" \
@@ -921,7 +895,7 @@ configure_save_load() {
     local result
     result="$(dialog \
         --title " Save / Load Configuration " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --menu "\nSave current config or load a previous one.\nCredentials are saved separately.\n" \
         16 65 5 \
         1 "Save config to JSON" \
@@ -937,7 +911,7 @@ configure_save_load() {
             local save_path
             save_path="$(dialog \
                 --title " Save Config " \
-                --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+                --backtitle "Arch Linux Autoinstaller Configuration" \
                 --inputbox "\nSave config JSON to:" \
                 9 60 "${SCRIPT_DIR}/configs/my-config.json" \
                 3>&1 1>&2 2>&3)" || return 0
@@ -951,7 +925,7 @@ configure_save_load() {
             local load_path
             load_path="$(dialog \
                 --title " Load Config " \
-                --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+                --backtitle "Arch Linux Autoinstaller Configuration" \
                 --inputbox "\nLoad config JSON from:" \
                 9 60 "${SCRIPT_DIR}/configs/last-config.json" \
                 3>&1 1>&2 2>&3)" || return 0
@@ -976,7 +950,7 @@ configure_save_load() {
             local load_path
             load_path="$(dialog \
                 --title " Load Credentials " \
-                --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+                --backtitle "Arch Linux Autoinstaller Configuration" \
                 --inputbox "\nLoad credentials from (.json or .json.gpg):" \
                 9 60 "${SCRIPT_DIR}/configs/credentials.json.gpg" \
                 3>&1 1>&2 2>&3)" || return 0
@@ -1017,7 +991,7 @@ show_review() {
 
     dialog \
         --title " Configuration Review " \
-        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
         --msgbox "
 ╔══════════════════════════════════════════════╗
 ║         INSTALLATION CONFIGURATION           ║
@@ -1928,8 +1902,6 @@ fi
 if [[ -n "$LOAD_CREDS" ]]; then
     load_credentials_json "$LOAD_CREDS"
 fi
-
-show_banner
 
 if [[ -n "$LOAD_CONFIG" ]]; then
     # Config loaded from file — skip TUI, just show what was loaded
