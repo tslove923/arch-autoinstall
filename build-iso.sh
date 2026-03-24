@@ -56,7 +56,7 @@ LUKS_PASSWORD=""       # set in TUI, or prompted during install
 TIMEZONE_CFG="US/Pacific"
 LOCALE_CFG="en_US"
 KB_LAYOUT_CFG="us"
-GFX_DRIVER="Intel (open-source)"
+GFX_DRIVERS=("Intel (open-source)")   # array of selected GPU drivers
 USE_PREFERRED=false
 SKIP_DOWNLOAD=false
 OUTPUT_ISO=""
@@ -190,7 +190,7 @@ config_to_json() {
     "timezone": "$TIMEZONE_CFG",
     "locale": "$LOCALE_CFG",
     "kb_layout": "$KB_LAYOUT_CFG",
-    "gfx_driver": "$GFX_DRIVER",
+    "gfx_drivers": "${GFX_DRIVERS[*]}",
     "suspend_mode": "$SUSPEND_MODE",
     "sleep_action": "$SLEEP_ACTION",
     "hibernate_delay": "$HIBERNATE_DELAY",
@@ -250,7 +250,7 @@ load_config_json() {
     v="$(_json_str timezone)";             [[ -n "$v" ]] && TIMEZONE_CFG="$v"
     v="$(_json_str locale)";               [[ -n "$v" ]] && LOCALE_CFG="$v"
     v="$(_json_str kb_layout)";            [[ -n "$v" ]] && KB_LAYOUT_CFG="$v"
-    v="$(_json_str gfx_driver)";           [[ -n "$v" ]] && GFX_DRIVER="$v"
+    v="$(_json_str gfx_drivers)";          [[ -n "$v" ]] && IFS=' ' read -ra GFX_DRIVERS <<< "$v"
     v="$(_json_bool enable_wifi)";         [[ -n "$v" ]] && ENABLE_WIFI=$v
     v="$(_json_str wifi_ssid)";            [[ -n "$v" ]] && WIFI_SSID="$v"
     v="$(_json_bool offline_mode)";        [[ -n "$v" ]] && OFFLINE_MODE=$v
@@ -466,10 +466,11 @@ show_main_menu() {
     result="$(run_dialog \
         --title " Main Menu " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
+        --begin 2 3 \
         --ok-label "Select" \
         --cancel-label "Build ISO" \
         --menu "\nConfigure your Arch Linux installation.\nSelect an option to modify, or press Build ISO when ready.\n" \
-        30 74 17 \
+        28 74 17 \
         "P" "★ Use Preferred Setup (recommended)" \
         "1" "Security: LUKS / Hibernate / TPM  [$(security_summary)]" \
         "2" "Desktop: Hyprland / GNOME / ii / omarchy  [$(desktop_summary)]" \
@@ -709,28 +710,34 @@ configure_system() {
     [[ -n "${vals[4]:-}" ]] && KB_LAYOUT_CFG="${vals[4]}"
 }
 
+_gfx_is_selected() { local d; for d in "${GFX_DRIVERS[@]}"; do [[ "$d" == "$1" ]] && return 0; done; return 1; }
+
 configure_graphics() {
     local result
     result="$(run_dialog \
-        --title " Graphics Driver " \
+        --title " Graphics Drivers " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
-        --radiolist "\nSelect GPU driver:\n" \
-        14 55 5 \
-        1 "Intel (open-source)" "$([[ "$GFX_DRIVER" == "Intel (open-source)" ]] && echo on || echo off)" \
-        2 "Nvidia (proprietary)" "$([[ "$GFX_DRIVER" == "Nvidia (proprietary)" ]] && echo on || echo off)" \
-        3 "Nvidia (open-source)" "$([[ "$GFX_DRIVER" == "Nvidia (open-source nouveau)" ]] && echo on || echo off)" \
-        4 "AMD / ATI (open-source)" "$([[ "$GFX_DRIVER" == "AMD / ATI (open-source)" ]] && echo on || echo off)" \
-        5 "VMware / VirtualBox" "$([[ "$GFX_DRIVER" == "VMware / VirtualBox (open-source)" ]] && echo on || echo off)" \
+        --checklist "\nSelect one or more GPU drivers (space to toggle):\n" \
+        16 60 5 \
+        1 "Intel (open-source)"           "$(_gfx_is_selected 'Intel (open-source)' && echo on || echo off)" \
+        2 "Nvidia (proprietary)"          "$(_gfx_is_selected 'Nvidia (proprietary)' && echo on || echo off)" \
+        3 "Nvidia (open-source nouveau)"  "$(_gfx_is_selected 'Nvidia (open-source nouveau)' && echo on || echo off)" \
+        4 "AMD / ATI (open-source)"       "$(_gfx_is_selected 'AMD / ATI (open-source)' && echo on || echo off)" \
+        5 "VMware / VirtualBox"           "$(_gfx_is_selected 'VMware / VirtualBox (open-source)' && echo on || echo off)" \
         3>&1 1>&2 2>&3)" || return 0
 
     result="${result//\"/}"
-    case "$result" in
-        1) GFX_DRIVER="Intel (open-source)" ;;
-        2) GFX_DRIVER="Nvidia (proprietary)" ;;
-        3) GFX_DRIVER="Nvidia (open-source nouveau)" ;;
-        4) GFX_DRIVER="AMD / ATI (open-source)" ;;
-        5) GFX_DRIVER="VMware / VirtualBox (open-source)" ;;
-    esac
+    GFX_DRIVERS=()
+    for tag in $result; do
+        case "$tag" in
+            1) GFX_DRIVERS+=("Intel (open-source)") ;;
+            2) GFX_DRIVERS+=("Nvidia (proprietary)") ;;
+            3) GFX_DRIVERS+=("Nvidia (open-source nouveau)") ;;
+            4) GFX_DRIVERS+=("AMD / ATI (open-source)") ;;
+            5) GFX_DRIVERS+=("VMware / VirtualBox (open-source)") ;;
+        esac
+    done
+    [[ ${#GFX_DRIVERS[@]} -eq 0 ]] && GFX_DRIVERS=("Intel (open-source)")
 }
 
 password_summary() {
@@ -989,23 +996,38 @@ configure_wifi() {
         current_ssid="$(iwctl station wlan0 show 2>/dev/null | awk '/Connected network/{print $NF}')"
     fi
 
+    # Toggle WiFi on/off with spacebar
     local result
     result="$(run_dialog \
         --title " WiFi Configuration " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
-        --form "\nPre-configure WiFi for the installed system.\nSSID auto-detected from current connection.\n" \
-        14 65 3 \
-        "Enable WiFi:" 1 1 "$($ENABLE_WIFI && echo yes || echo no)" 1 16 10 10 \
-        "SSID:"        2 1 "${WIFI_SSID:-$current_ssid}"            2 16 40 64 \
-        "Password:"    3 1 "$WIFI_PASSWORD"                         3 16 40 64 \
+        --checklist "\nToggle WiFi pre-configuration (space to toggle).\nSSID auto-detected from current connection.\n" \
+        11 65 1 \
+        1 "Enable WiFi on installed system" "$($ENABLE_WIFI && echo on || echo off)" \
+        3>&1 1>&2 2>&3)" || return 0
+
+    result="${result//\"/}"
+    if [[ "$result" == *"1"* ]]; then
+        ENABLE_WIFI=true
+    else
+        ENABLE_WIFI=false
+        return 0
+    fi
+
+    # If enabled, prompt for SSID and password
+    result="$(run_dialog \
+        --title " WiFi Details " \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
+        --form "\nEnter WiFi credentials:\n" \
+        12 65 2 \
+        "SSID:"     1 1 "${WIFI_SSID:-$current_ssid}" 1 12 45 64 \
+        "Password:" 2 1 "$WIFI_PASSWORD"               2 12 45 64 \
         3>&1 1>&2 2>&3)" || return 0
 
     local -a vals
     mapfile -t vals <<< "$result"
-    local enable_val="${vals[0]:-no}"
-    [[ "$enable_val" == "yes" || "$enable_val" == "y" || "$enable_val" == "true" ]] && ENABLE_WIFI=true || ENABLE_WIFI=false
-    [[ -n "${vals[1]:-}" ]] && WIFI_SSID="${vals[1]}"
-    [[ -n "${vals[2]:-}" ]] && WIFI_PASSWORD="${vals[2]}"
+    [[ -n "${vals[0]:-}" ]] && WIFI_SSID="${vals[0]}"
+    [[ -n "${vals[1]:-}" ]] && WIFI_PASSWORD="${vals[1]}"
 
     if $ENABLE_WIFI && [[ -z "$WIFI_SSID" ]]; then
         run_dialog --msgbox "\n⚠ WiFi enabled but no SSID set.\nThe installer will attempt DHCP on ethernet." 8 55
@@ -1037,23 +1059,33 @@ configure_offline() {
 # ─── Packages Configuration ───────────────────────────────────────────────────
 
 configure_packages() {
+    # Toggle yay on/off with spacebar
     local result
     result="$(run_dialog \
         --title " Package Configuration " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
-        --form "\nConfigure additional packages.\nyay enables AUR access for community packages.\n\nExtra packages: space-separated pacman package names\nAUR packages: space-separated AUR package names (requires yay)\n" \
-        18 72 3 \
-        "Install yay:" 1 1 "$($INSTALL_YAY && echo yes || echo no)" 1 16 10 10 \
-        "Extra pkgs:"  2 1 "$EXTRA_PACKAGES"                        2 16 50 256 \
-        "AUR pkgs:"    3 1 "$AUR_PACKAGES"                          3 16 50 256 \
+        --checklist "\nToggle yay AUR helper (space to toggle).\nyay enables installing packages from the AUR.\n" \
+        11 65 1 \
+        1 "Install yay (AUR helper)" "$($INSTALL_YAY && echo on || echo off)" \
+        3>&1 1>&2 2>&3)" || return 0
+
+    result="${result//\"/}"
+    [[ "$result" == *"1"* ]] && INSTALL_YAY=true || INSTALL_YAY=false
+
+    # Additional packages form
+    result="$(run_dialog \
+        --title " Additional Packages " \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
+        --form "\nSpace-separated package names.\nAUR packages require yay (auto-enabled if needed).\n" \
+        14 72 2 \
+        "Extra pacman pkgs:" 1 1 "$EXTRA_PACKAGES" 1 22 45 256 \
+        "AUR packages:"      2 1 "$AUR_PACKAGES"   2 22 45 256 \
         3>&1 1>&2 2>&3)" || return 0
 
     local -a vals
     mapfile -t vals <<< "$result"
-    local yay_val="${vals[0]:-yes}"
-    [[ "$yay_val" == "yes" || "$yay_val" == "y" || "$yay_val" == "true" ]] && INSTALL_YAY=true || INSTALL_YAY=false
-    EXTRA_PACKAGES="${vals[1]:-}"
-    AUR_PACKAGES="${vals[2]:-}"
+    EXTRA_PACKAGES="${vals[0]:-}"
+    AUR_PACKAGES="${vals[1]:-}"
 
     if [[ -n "$AUR_PACKAGES" ]] && ! $INSTALL_YAY; then
         INSTALL_YAY=true
@@ -1202,7 +1234,7 @@ show_review() {
 ║    Hostname:    $HOSTNAME_CFG
 ║    Username:    ${USERNAME_CFG:-(set during install)}
 ║    Timezone:    $TIMEZONE_CFG
-║    GPU driver:  $GFX_DRIVER
+║    GPU drivers: ${GFX_DRIVERS[*]}
 ║    Disk mode:   $disk_str
 ║                                                  ║
 ║  Passwords                                       ║
@@ -1243,7 +1275,7 @@ apply_preferred() {
     TIMEZONE_CFG="US/Pacific"
     LOCALE_CFG="en_US"
     KB_LAYOUT_CFG="us"
-    GFX_DRIVER="Intel (open-source)"
+    GFX_DRIVERS=("Intel (open-source)")
     SUSPEND_MODE="deep"
     SLEEP_ACTION="suspend-then-hibernate"
     HIBERNATE_DELAY="120min"
@@ -1439,7 +1471,7 @@ generate_archinstall_config() {
     ],
     "parallel downloads": 5,
     "profile_config": {
-        "gfx_driver": "$GFX_DRIVER",
+        "gfx_driver": "${GFX_DRIVERS[0]}",
         "greeter": "$greeter",
         $profile_json
     },
