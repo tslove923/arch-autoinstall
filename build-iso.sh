@@ -72,6 +72,22 @@ IDLE_ACTION="suspend-then-hibernate"   # suspend | hibernate | suspend-then-hibe
 IDLE_TIMEOUT_SEC=900             # seconds before idle action (15 min default)
 ENABLE_HIBERNATE_GUARD=true      # hibernate-guard disk-space watchdog
 
+# WiFi
+WIFI_SSID=""                     # pre-configure WiFi SSID
+WIFI_PASSWORD=""                 # WiFi password (WPA)
+ENABLE_WIFI=false                # embed WiFi config in ISO
+
+# Offline installer
+OFFLINE_MODE=false               # bundle all packages in ISO (no internet needed)
+
+# Desktop: omarchy
+ENABLE_OMARCHY=false             # omarchy Hyprland rice (alternative to ii)
+
+# Optional packages
+INSTALL_YAY=true                 # install yay AUR helper
+EXTRA_PACKAGES=""               # space-separated extra pacman packages
+AUR_PACKAGES=""                 # space-separated AUR packages (requires yay)
+
 # ─── illogical-impulse feature catalog ─────────────────────────────────────────
 # Mirrors the catalog in dots-hyprland-dev/apply-features.sh
 II_FEATURE_BRANCHES=(
@@ -181,7 +197,14 @@ config_to_json() {
     "lid_action": "$LID_ACTION",
     "idle_action": "$IDLE_ACTION",
     "idle_timeout_sec": $IDLE_TIMEOUT_SEC,
-    "enable_hibernate_guard": $ENABLE_HIBERNATE_GUARD
+    "enable_hibernate_guard": $ENABLE_HIBERNATE_GUARD,
+    "enable_wifi": $ENABLE_WIFI,
+    "wifi_ssid": "$WIFI_SSID",
+    "offline_mode": $OFFLINE_MODE,
+    "enable_omarchy": $ENABLE_OMARCHY,
+    "install_yay": $INSTALL_YAY,
+    "extra_packages": "$EXTRA_PACKAGES",
+    "aur_packages": "$AUR_PACKAGES"
 }
 CFGJSON
 }
@@ -212,7 +235,7 @@ load_config_json() {
     v="$(_json_bool enable_hyprland)";     [[ -n "$v" ]] && ENABLE_HYPRLAND=$v
     v="$(_json_bool enable_gnome)";        [[ -n "$v" ]] && ENABLE_GNOME=$v
     v="$(_json_bool enable_ii)";           [[ -n "$v" ]] && ENABLE_II=$v
-    v="$(_json_bool enable_ii_features)";  [[ -n "$v" ]] && ENABLE_II_FEATU
+    v="$(_json_bool enable_ii_features)";  [[ -n "$v" ]] && ENABLE_II_FEATURES=$v
     v="$(_json_str suspend_mode)";         [[ -n "$v" ]] && SUSPEND_MODE="$v"
     v="$(_json_str sleep_action)";         [[ -n "$v" ]] && SLEEP_ACTION="$v"
     v="$(_json_str hibernate_delay)";      [[ -n "$v" ]] && HIBERNATE_DELAY="$v"
@@ -220,7 +243,7 @@ load_config_json() {
     v="$(_json_str idle_action)";          [[ -n "$v" ]] && IDLE_ACTION="$v"
     v="$(grep -oP '"idle_timeout_sec"\s*:\s*\K[0-9]+' "$path" | head -1)"
     [[ -n "$v" ]] && IDLE_TIMEOUT_SEC=$v
-    v="$(_json_bool enable_hibernate_guard)"; [[ -n "$v" ]] && ENABLE_HIBERNATE_GUARD=$vRES=$v
+    v="$(_json_bool enable_hibernate_guard)"; [[ -n "$v" ]] && ENABLE_HIBERNATE_GUARD=$v
     v="$(_json_bool auto_disk)";           [[ -n "$v" ]] && AUTO_DISK=$v
     v="$(_json_str hostname)";             [[ -n "$v" ]] && HOSTNAME_CFG="$v"
     v="$(_json_str username)";             [[ -n "$v" ]] && USERNAME_CFG="$v"
@@ -228,6 +251,13 @@ load_config_json() {
     v="$(_json_str locale)";               [[ -n "$v" ]] && LOCALE_CFG="$v"
     v="$(_json_str kb_layout)";            [[ -n "$v" ]] && KB_LAYOUT_CFG="$v"
     v="$(_json_str gfx_driver)";           [[ -n "$v" ]] && GFX_DRIVER="$v"
+    v="$(_json_bool enable_wifi)";         [[ -n "$v" ]] && ENABLE_WIFI=$v
+    v="$(_json_str wifi_ssid)";            [[ -n "$v" ]] && WIFI_SSID="$v"
+    v="$(_json_bool offline_mode)";        [[ -n "$v" ]] && OFFLINE_MODE=$v
+    v="$(_json_bool enable_omarchy)";      [[ -n "$v" ]] && ENABLE_OMARCHY=$v
+    v="$(_json_bool install_yay)";         [[ -n "$v" ]] && INSTALL_YAY=$v
+    v="$(_json_str extra_packages)";       [[ -n "$v" ]] && EXTRA_PACKAGES="$v"
+    v="$(_json_str aur_packages)";         [[ -n "$v" ]] && AUR_PACKAGES="$v"
 
     # Parse ii_feature_selected array: [1,0,1,1,...]
     v="$(_json_array ii_feature_selected)"
@@ -315,7 +345,7 @@ prompt_save_credentials() {
     fi
 
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " Save Credentials " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nSave passwords for future builds?\n\nEncrypted uses GPG (AES-256 symmetric).\nPlaintext is chmod 600 but visible on disk.\n" \
@@ -330,12 +360,12 @@ prompt_save_credentials() {
         2)
             local cred_path="${SCRIPT_DIR}/configs/credentials.json"
             save_credentials_json "$cred_path" "gpg"
-            dialog --msgbox "Encrypted credentials saved to:\n\n  configs/credentials.json.gpg\n\nLoad with: ./build-iso.sh --creds configs/credentials.json.gpg" 10 60
+            run_dialog --msgbox "Encrypted credentials saved to:\n\n  configs/credentials.json.gpg\n\nLoad with: ./build-iso.sh --creds configs/credentials.json.gpg" 10 60
             ;;
         3)
             local cred_path="${SCRIPT_DIR}/configs/credentials.json"
             save_credentials_json "$cred_path" "plain"
-            dialog --msgbox "Plaintext credentials saved to:\n\n  configs/credentials.json\n\nLoad with: ./build-iso.sh --creds configs/credentials.json\n\n⚠ Contains passwords in cleartext!" 11 60
+            run_dialog --msgbox "Plaintext credentials saved to:\n\n  configs/credentials.json\n\nLoad with: ./build-iso.sh --creds configs/credentials.json\n\n⚠ Contains passwords in cleartext!" 11 60
             ;;
     esac
 }
@@ -400,6 +430,29 @@ gauge_color = (WHITE,RED,ON)
 DLGEOF
 }
 
+# ─── Terminal footer ───────────────────────────────────────────────────────────
+# Paint "osuosl.org/donate — Go Beavs! 🦫" on the last line, right-justified.
+# Called before every dialog invocation so it persists across redraws.
+paint_footer() {
+    local msg="osuosl.org/donate — Go Beavs! 🦫"
+    local cols rows
+    cols="$(tput cols 2>/dev/null || echo 80)"
+    rows="$(tput lines 2>/dev/null || echo 24)"
+    local pad=$(( cols - ${#msg} - 1 ))
+    (( pad < 0 )) && pad=0
+    # Save cursor, move to last row, print right-justified, restore cursor
+    tput sc
+    tput cup $(( rows - 1 )) "$pad"
+    printf '\033[38;5;208m%s\033[0m' "$msg"    # orange
+    tput rc
+}
+
+# Wrapper: paint footer then exec dialog
+run_dialog() {
+    paint_footer
+    dialog "$@"
+}
+
 # ─── TUI Functions ─────────────────────────────────────────────────────────────
 
 show_main_menu() {
@@ -410,22 +463,25 @@ show_main_menu() {
     $ENABLE_II && [[ $ENABLE_II_FEATURES == false ]] && ii_summary="base only"
 
     local result
-    result="$(dialog \
-        --title " osuosl.org/donate — Go Beavs! 🦫 " \
+    result="$(run_dialog \
+        --title " Main Menu " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --ok-label "Select" \
         --cancel-label "Build ISO" \
         --menu "\nConfigure your Arch Linux installation.\nSelect an option to modify, or press Build ISO when ready.\n" \
-        26 72 13 \
+        30 74 17 \
         "P" "★ Use Preferred Setup (recommended)" \
         "1" "Security: LUKS / Hibernate / TPM  [$(security_summary)]" \
-        "2" "Desktop: Hyprland / GNOME / illogical-impulse" \
+        "2" "Desktop: Hyprland / GNOME / ii / omarchy  [$(desktop_summary)]" \
         "3" "illogical-impulse features  [$ii_summary]" \
         "4" "Disk: Target disk selection" \
         "5" "System: Hostname, user, locale, timezone" \
         "6" "Graphics: GPU driver selection" \
         "7" "Passwords: User & LUKS encryption  [$(password_summary)]" \
         "8" "Sleep & Power: suspend / hibernate / hybrid  [$(sleep_summary)]" \
+        "9" "WiFi: pre-configure wireless  [$(wifi_summary)]" \
+        "A" "Packages: yay, extra pacman & AUR  [$(packages_summary)]" \
+        "O" "Offline installer  [$($OFFLINE_MODE && echo ON || echo off)]" \
         "S" "Save / Load config" \
         "R" "Review configuration" \
         3>&1 1>&2 2>&3)" || return 1
@@ -447,7 +503,7 @@ configure_security() {
     args+=(3 "TPM2 auto-unlock (requires Secure Boot)" "$($ENABLE_TPM && echo on || echo off)")
 
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " Security Options " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --checklist "\nSelect security features.\nHibernate requires LUKS+btrfs. TPM requires LUKS.\n" \
@@ -468,11 +524,11 @@ configure_security() {
     # Enforce dependencies
     if $ENABLE_HIBERNATE && ! $ENABLE_LUKS; then
         ENABLE_LUKS=true
-        dialog --msgbox "LUKS auto-enabled (required for hibernate resume device detection)." 7 55
+        run_dialog --msgbox "LUKS auto-enabled (required for hibernate resume device detection)." 7 55
     fi
     if $ENABLE_TPM && ! $ENABLE_LUKS; then
         ENABLE_LUKS=true
-        dialog --msgbox "LUKS auto-enabled (required for TPM auto-unlock)." 7 55
+        run_dialog --msgbox "LUKS auto-enabled (required for TPM auto-unlock)." 7 55
     fi
 }
 
@@ -482,7 +538,7 @@ configure_desktop() {
     args+=(2 "GNOME (full desktop environment)" "$($ENABLE_GNOME && echo on || echo off)")
 
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " Desktop Environment " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --checklist "\nSelect desktop environments to install.\n" \
@@ -499,41 +555,43 @@ configure_desktop() {
         esac
     done
 
-    # If Hyprland selected, offer illogical-impulse
+    # If Hyprland selected, offer rice options
     if $ENABLE_HYPRLAND; then
-        configure_illogical_impulse
+        configure_hyprland_rice
     else
         ENABLE_II=false
         ENABLE_II_FEATURES=false
+        ENABLE_OMARCHY=false
     fi
 }
 
-configure_illogical_impulse() {
+configure_hyprland_rice() {
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " Hyprland Customization " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nSelect Hyprland rice level:\n" \
-        14 65 3 \
-        1 "Vanilla Hyprland (no rice)" "$([[ $ENABLE_II == false ]] && echo on || echo off)" \
+        16 70 4 \
+        1 "Vanilla Hyprland (no rice)" "$([[ $ENABLE_II == false && $ENABLE_OMARCHY == false ]] && echo on || echo off)" \
         2 "illogical-impulse (end-4 rice)" "$([[ $ENABLE_II == true && $ENABLE_II_FEATURES == false ]] && echo on || echo off)" \
         3 "illogical-impulse + custom features (recommended)" "$($ENABLE_II_FEATURES && echo on || echo off)" \
+        4 "omarchy (omakub-inspired Hyprland rice)" "$($ENABLE_OMARCHY && echo on || echo off)" \
         3>&1 1>&2 2>&3)" || return 0
 
     result="${result//\"/}"
     case "$result" in
-        1) ENABLE_II=false; ENABLE_II_FEATURES=false ;;
-        2) ENABLE_II=true;  ENABLE_II_FEATURES=false ;;
-        3) ENABLE_II=true; ENABLE_II_FEATURES=true
-           # Jump straight to feature picker
+        1) ENABLE_II=false; ENABLE_II_FEATURES=false; ENABLE_OMARCHY=false ;;
+        2) ENABLE_II=true;  ENABLE_II_FEATURES=false; ENABLE_OMARCHY=false ;;
+        3) ENABLE_II=true;  ENABLE_II_FEATURES=true;  ENABLE_OMARCHY=false
            configure_ii_features
            ;;
+        4) ENABLE_II=false; ENABLE_II_FEATURES=false; ENABLE_OMARCHY=true ;;
     esac
 }
 
 configure_ii_features() {
     if ! $ENABLE_II || ! $ENABLE_II_FEATURES; then
-        dialog \
+        run_dialog \
             --title " illogical-impulse Features " \
             --backtitle "Arch Linux Autoinstaller Configuration" \
             --msgbox "\nillogical-impulse + custom features must be enabled first.\nGo to Desktop → Hyprland Customization and select option 3." 9 62
@@ -555,7 +613,7 @@ configure_ii_features() {
     done
 
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " illogical-impulse Feature Picker " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --checklist "\nSelect which custom feature branches to include.\nDependencies will be auto-enabled.\n" \
@@ -602,7 +660,7 @@ configure_ii_features() {
         fi
     done
     if [[ -n "$auto_msg" ]]; then
-        dialog \
+        run_dialog \
             --title " Auto-enabled Dependencies " \
             --backtitle "Arch Linux Autoinstaller Configuration" \
             --msgbox "\nThe following features were auto-enabled as dependencies:${auto_msg}" 12 60
@@ -611,7 +669,7 @@ configure_ii_features() {
 
 configure_disk() {
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " Disk Selection " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nHow should the installer select the target disk?\n" \
@@ -629,7 +687,7 @@ configure_disk() {
 
 configure_system() {
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " System Configuration " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --form "\nSet system parameters:\n" \
@@ -653,7 +711,7 @@ configure_system() {
 
 configure_graphics() {
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " Graphics Driver " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nSelect GPU driver:\n" \
@@ -687,7 +745,7 @@ password_summary() {
 configure_passwords() {
     # ── User password ──
     local pw1 pw2
-    pw1="$(dialog \
+    pw1="$(run_dialog \
         --title " User Password " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --insecure \
@@ -696,7 +754,7 @@ configure_passwords() {
         3>&1 1>&2 2>&3)" || return 0
 
     if [[ -n "$pw1" ]]; then
-        pw2="$(dialog \
+        pw2="$(run_dialog \
             --title " Confirm User Password " \
             --backtitle "Arch Linux Autoinstaller Configuration" \
             --insecure \
@@ -717,7 +775,7 @@ configure_passwords() {
 
     # ── LUKS encryption password ──
     if $ENABLE_LUKS; then
-        pw1="$(dialog \
+        pw1="$(run_dialog \
             --title " LUKS Encryption Password " \
             --backtitle "Arch Linux Autoinstaller Configuration" \
             --insecure \
@@ -726,7 +784,7 @@ configure_passwords() {
             3>&1 1>&2 2>&3)" || return 0
 
         if [[ -n "$pw1" ]]; then
-            pw2="$(dialog \
+            pw2="$(run_dialog \
                 --title " Confirm LUKS Password " \
                 --backtitle "Arch Linux Autoinstaller Configuration" \
                 --insecure \
@@ -757,7 +815,7 @@ sleep_summary() {
 
 configure_sleep() {
     if ! $ENABLE_HIBERNATE; then
-        dialog \
+        run_dialog \
             --title " Sleep & Power " \
             --backtitle "Arch Linux Autoinstaller Configuration" \
             --msgbox "\nHibernate is disabled in Security settings.\n\nEnable it first (menu item 1) to configure\nsuspend-then-hibernate and hybrid-sleep." 10 58
@@ -765,7 +823,7 @@ configure_sleep() {
     fi
 
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " Sleep & Power Configuration " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --menu "\nConfigure sleep, hibernate, and power behavior.\n" \
@@ -796,7 +854,7 @@ configure_sleep() {
 
 _configure_sleep_action() {
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " Sleep Action " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nDefault action when the system sleeps (e.g. power button):\n" \
@@ -812,7 +870,7 @@ _configure_sleep_action() {
 
 _configure_suspend_mode() {
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " Suspend Mode " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nHardware suspend mode (mem_sleep):\n" \
@@ -826,7 +884,7 @@ _configure_suspend_mode() {
 
 _configure_hibernate_delay() {
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " Hibernate Delay " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nTime in suspend before hibernating (suspend-then-hibernate):\n" \
@@ -843,7 +901,7 @@ _configure_hibernate_delay() {
 
 _configure_lid_action() {
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " Lid Close Action " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nAction when the laptop lid is closed:\n" \
@@ -860,7 +918,7 @@ _configure_lid_action() {
 
 _configure_idle_action() {
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " Idle Action " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nAction after system is idle for the configured timeout:\n" \
@@ -876,7 +934,7 @@ _configure_idle_action() {
 
 _configure_idle_timeout() {
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " Idle Timeout " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --radiolist "\nTime of inactivity before idle action triggers:\n" \
@@ -891,9 +949,121 @@ _configure_idle_timeout() {
     [[ -n "$result" ]] && IDLE_TIMEOUT_SEC="$result"
 }
 
+desktop_summary() {
+    local parts=()
+    $ENABLE_HYPRLAND && parts+=("Hyprland")
+    $ENABLE_GNOME && parts+=("GNOME")
+    $ENABLE_II && parts+=("ii")
+    $ENABLE_OMARCHY && parts+=("omarchy")
+    [[ ${#parts[@]} -eq 0 ]] && echo "(none)" && return
+    echo "${parts[*]}"
+}
+
+wifi_summary() {
+    if $ENABLE_WIFI && [[ -n "$WIFI_SSID" ]]; then
+        echo "$WIFI_SSID"
+    elif $ENABLE_WIFI; then
+        echo "on (no SSID)"
+    else
+        echo "off"
+    fi
+}
+
+packages_summary() {
+    local parts=()
+    $INSTALL_YAY && parts+=("yay")
+    [[ -n "$EXTRA_PACKAGES" ]] && parts+=("pkg")
+    [[ -n "$AUR_PACKAGES" ]] && parts+=("aur")
+    [[ ${#parts[@]} -eq 0 ]] && echo "defaults" && return
+    echo "${parts[*]}"
+}
+
+# ─── WiFi Configuration ───────────────────────────────────────────────────────
+
+configure_wifi() {
+    # Auto-detect current WiFi SSID as default
+    local current_ssid=""
+    if command -v nmcli &>/dev/null; then
+        current_ssid="$(nmcli -t -f active,ssid dev wifi | grep '^yes:' | cut -d: -f2 | head -1)"
+    elif command -v iwctl &>/dev/null; then
+        current_ssid="$(iwctl station wlan0 show 2>/dev/null | awk '/Connected network/{print $NF}')"
+    fi
+
+    local result
+    result="$(run_dialog \
+        --title " WiFi Configuration " \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
+        --form "\nPre-configure WiFi for the installed system.\nSSID auto-detected from current connection.\n" \
+        14 65 3 \
+        "Enable WiFi:" 1 1 "$($ENABLE_WIFI && echo yes || echo no)" 1 16 10 10 \
+        "SSID:"        2 1 "${WIFI_SSID:-$current_ssid}"            2 16 40 64 \
+        "Password:"    3 1 "$WIFI_PASSWORD"                         3 16 40 64 \
+        3>&1 1>&2 2>&3)" || return 0
+
+    local -a vals
+    mapfile -t vals <<< "$result"
+    local enable_val="${vals[0]:-no}"
+    [[ "$enable_val" == "yes" || "$enable_val" == "y" || "$enable_val" == "true" ]] && ENABLE_WIFI=true || ENABLE_WIFI=false
+    [[ -n "${vals[1]:-}" ]] && WIFI_SSID="${vals[1]}"
+    [[ -n "${vals[2]:-}" ]] && WIFI_PASSWORD="${vals[2]}"
+
+    if $ENABLE_WIFI && [[ -z "$WIFI_SSID" ]]; then
+        run_dialog --msgbox "\n⚠ WiFi enabled but no SSID set.\nThe installer will attempt DHCP on ethernet." 8 55
+    fi
+}
+
+# ─── Offline Installer ────────────────────────────────────────────────────────
+
+configure_offline() {
+    local result
+    result="$(run_dialog \
+        --title " Offline Installer " \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
+        --radiolist "\nBundle all packages into the ISO for offline installation.\nThis increases ISO size significantly (~2-4 GB).\n" \
+        13 68 2 \
+        1 "Online install (download packages during install)"  "$(! $OFFLINE_MODE && echo on || echo off)" \
+        2 "Offline install (all packages bundled in ISO)"      "$($OFFLINE_MODE && echo on || echo off)" \
+        3>&1 1>&2 2>&3)" || return 0
+
+    result="${result//\"/}"
+    case "$result" in
+        1) OFFLINE_MODE=false ;;
+        2) OFFLINE_MODE=true
+           run_dialog --msgbox "\nOffline mode enabled.\n\nThe ISO will be significantly larger.\nAll selected packages will be pre-downloaded\nand bundled into the squashfs image." 10 58
+           ;;
+    esac
+}
+
+# ─── Packages Configuration ───────────────────────────────────────────────────
+
+configure_packages() {
+    local result
+    result="$(run_dialog \
+        --title " Package Configuration " \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
+        --form "\nConfigure additional packages.\nyay enables AUR access for community packages.\n\nExtra packages: space-separated pacman package names\nAUR packages: space-separated AUR package names (requires yay)\n" \
+        18 72 3 \
+        "Install yay:" 1 1 "$($INSTALL_YAY && echo yes || echo no)" 1 16 10 10 \
+        "Extra pkgs:"  2 1 "$EXTRA_PACKAGES"                        2 16 50 256 \
+        "AUR pkgs:"    3 1 "$AUR_PACKAGES"                          3 16 50 256 \
+        3>&1 1>&2 2>&3)" || return 0
+
+    local -a vals
+    mapfile -t vals <<< "$result"
+    local yay_val="${vals[0]:-yes}"
+    [[ "$yay_val" == "yes" || "$yay_val" == "y" || "$yay_val" == "true" ]] && INSTALL_YAY=true || INSTALL_YAY=false
+    EXTRA_PACKAGES="${vals[1]:-}"
+    AUR_PACKAGES="${vals[2]:-}"
+
+    if [[ -n "$AUR_PACKAGES" ]] && ! $INSTALL_YAY; then
+        INSTALL_YAY=true
+        run_dialog --msgbox "\nyay auto-enabled (required for AUR packages)." 7 52
+    fi
+}
+
 configure_save_load() {
     local result
-    result="$(dialog \
+    result="$(run_dialog \
         --title " Save / Load Configuration " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --menu "\nSave current config or load a previous one.\nCredentials are saved separately.\n" \
@@ -909,7 +1079,7 @@ configure_save_load() {
     case "$result" in
         1)  # Save config
             local save_path
-            save_path="$(dialog \
+            save_path="$(run_dialog \
                 --title " Save Config " \
                 --backtitle "Arch Linux Autoinstaller Configuration" \
                 --inputbox "\nSave config JSON to:" \
@@ -918,12 +1088,12 @@ configure_save_load() {
             if [[ -n "$save_path" ]]; then
                 mkdir -p "$(dirname "$save_path")"
                 save_config_json "$save_path"
-                dialog --msgbox "Config saved to:\n\n  $save_path\n\nReuse with: ./build-iso.sh --config $save_path" 10 60
+                run_dialog --msgbox "Config saved to:\n\n  $save_path\n\nReuse with: ./build-iso.sh --config $save_path" 10 60
             fi
             ;;
         2)  # Load config
             local load_path
-            load_path="$(dialog \
+            load_path="$(run_dialog \
                 --title " Load Config " \
                 --backtitle "Arch Linux Autoinstaller Configuration" \
                 --inputbox "\nLoad config JSON from:" \
@@ -931,24 +1101,24 @@ configure_save_load() {
                 3>&1 1>&2 2>&3)" || return 0
             if [[ -n "$load_path" && -f "$load_path" ]]; then
                 load_config_json "$load_path"
-                dialog --msgbox "Config loaded from:\n\n  $load_path" 8 55
+                run_dialog --msgbox "Config loaded from:\n\n  $load_path" 8 55
             elif [[ -n "$load_path" ]]; then
-                dialog --msgbox "File not found:\n\n  $load_path" 8 55
+                run_dialog --msgbox "File not found:\n\n  $load_path" 8 55
             fi
             ;;
         3)  # Save creds encrypted
             local cred_path="${SCRIPT_DIR}/configs/credentials.json"
             save_credentials_json "$cred_path" "gpg" && \
-                dialog --msgbox "Encrypted credentials saved:\n\n  ${cred_path}.gpg" 8 55
+                run_dialog --msgbox "Encrypted credentials saved:\n\n  ${cred_path}.gpg" 8 55
             ;;
         4)  # Save creds plaintext
             local cred_path="${SCRIPT_DIR}/configs/credentials.json"
             save_credentials_json "$cred_path" "plain" && \
-                dialog --msgbox "Plaintext credentials saved:\n\n  ${cred_path}\n\n⚠ Contains passwords in cleartext!" 10 55
+                run_dialog --msgbox "Plaintext credentials saved:\n\n  ${cred_path}\n\n⚠ Contains passwords in cleartext!" 10 55
             ;;
         5)  # Load creds
             local load_path
-            load_path="$(dialog \
+            load_path="$(run_dialog \
                 --title " Load Credentials " \
                 --backtitle "Arch Linux Autoinstaller Configuration" \
                 --inputbox "\nLoad credentials from (.json or .json.gpg):" \
@@ -956,9 +1126,9 @@ configure_save_load() {
                 3>&1 1>&2 2>&3)" || return 0
             if [[ -n "$load_path" ]] && [[ -f "$load_path" ]]; then
                 load_credentials_json "$load_path"
-                dialog --msgbox "Credentials loaded from:\n\n  $load_path" 8 55
+                run_dialog --msgbox "Credentials loaded from:\n\n  $load_path" 8 55
             elif [[ -n "$load_path" ]]; then
-                dialog --msgbox "File not found:\n\n  $load_path" 8 55
+                run_dialog --msgbox "File not found:\n\n  $load_path" 8 55
             fi
             ;;
     esac
@@ -976,63 +1146,87 @@ show_review() {
     local ii_str="No"
     $ENABLE_II && ii_str="Yes"
     $ENABLE_II_FEATURES && ii_str="Yes + custom features"
+    local omarchy_str="No"; $ENABLE_OMARCHY && omarchy_str="Yes"
     local pw_user="prompt at install"; [[ -n "$USER_PASSWORD" ]] && pw_user="set (••••)"
     local pw_luks="N/A"
     if $ENABLE_LUKS; then
         pw_luks="prompt at install"; [[ -n "$LUKS_PASSWORD" ]] && pw_luks="set (••••)"
     fi
 
-    # Build ii feature summary for review
-    local ii_features_str=""
     # Sleep/power summary
     local sleep_str="$SLEEP_ACTION"
     [[ "$SLEEP_ACTION" == "suspend-then-hibernate" ]] && sleep_str+=" (${HIBERNATE_DELAY})"
     local guard_str="Disabled"; $ENABLE_HIBERNATE_GUARD && guard_str="Enabled"
 
-    dialog \
+    # WiFi summary
+    local wifi_str="Disabled"
+    $ENABLE_WIFI && wifi_str="Enabled — ${WIFI_SSID:-<not set>}"
+
+    # Offline summary
+    local offline_str="Online (download packages)"
+    $OFFLINE_MODE && offline_str="Offline (bundled packages)"
+
+    # Packages summary
+    local yay_str="No"; $INSTALL_YAY && yay_str="Yes"
+    local extra_str="${EXTRA_PACKAGES:-(none)}"
+    local aur_str="${AUR_PACKAGES:-(none)}"
+
+    run_dialog \
         --title " Configuration Review " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --msgbox "
-╔══════════════════════════════════════════════╗
-║         INSTALLATION CONFIGURATION           ║
-╠══════════════════════════════════════════════╣
-║                                              ║
-║  Security                                    ║
+╔══════════════════════════════════════════════════╗
+║           INSTALLATION CONFIGURATION             ║
+╠══════════════════════════════════════════════════╣
+║                                                  ║
+║  Security                                        ║
 ║    LUKS encryption:  $luks_str
 ║    Hibernate:        $hib_str
 ║    TPM auto-unlock:  $tpm_str
-║                                              ║
-║  Desktop                                     ║
-║    Environments:     $de_list
-║    illogical-impulse: $ii_str${ii_features_str}
-║                                              ║
-║  System                                      ║
+║                                                  ║
+║  Desktop                                         ║
+║    Environments:      $de_list
+║    illogical-impulse: $ii_str
+║    omarchy:           $omarchy_str
+║                                                  ║
+║  Networking                                      ║
+║    WiFi:     $wifi_str
+║    Install:  $offline_str
+║                                                  ║
+║  Packages                                        ║
+║    Install yay (AUR): $yay_str
+║    Extra pacman:      $extra_str
+║    AUR packages:      $aur_str
+║                                                  ║
+║  System                                          ║
 ║    Hostname:    $HOSTNAME_CFG
 ║    Username:    ${USERNAME_CFG:-(set during install)}
 ║    Timezone:    $TIMEZONE_CFG
 ║    GPU driver:  $GFX_DRIVER
 ║    Disk mode:   $disk_str
-║                                              ║
-║  Passwords                                   ║
+║                                                  ║
+║  Passwords                                       ║
 ║    User password:  $pw_user
 ║    LUKS password:  $pw_luks
-║                                              ║
-║  Sleep & Power                               ║
+║                                                  ║
+║  Sleep & Power                                   ║
 ║    Sleep action:     $sleep_str
 ║    Suspend mode:     $SUSPEND_MODE
 ║    Lid close:        $LID_ACTION
 ║    Idle action:      $IDLE_ACTION (${IDLE_TIMEOUT_SEC}s)
 ║    Hibernate guard:  $guard_str
-║                                              ║
-║  Post-Install (first boot):                  ║
-║    • Secure Boot setup (if TPM enabled)      ║
-║    • TPM enrollment (after Secure Boot)      ║
-║    • Hibernate + sleep configuration         ║
-║    • Hibernate guard service (if enabled)    ║
-║    • illogical-impulse (if selected)         ║
-║                                              ║
-╚══════════════════════════════════════════════╝
-" 42 58
+║                                                  ║
+║  Post-Install (first boot):                      ║
+║    • Secure Boot setup (if TPM enabled)          ║
+║    • TPM enrollment (after Secure Boot)          ║
+║    • Hibernate + sleep configuration             ║
+║    • Hibernate guard service (if enabled)        ║
+║    • illogical-impulse / omarchy (if selected)   ║
+║    • WiFi auto-connect (if configured)           ║
+║    • yay + AUR packages (if selected)            ║
+║                                                  ║
+╚══════════════════════════════════════════════════╝
+" 50 62
 }
 
 apply_preferred() {
@@ -1043,6 +1237,7 @@ apply_preferred() {
     ENABLE_GNOME=true
     ENABLE_II=true
     ENABLE_II_FEATURES=true
+    ENABLE_OMARCHY=false
     AUTO_DISK=true
     HOSTNAME_CFG="archlinux"
     TIMEZONE_CFG="US/Pacific"
@@ -1056,6 +1251,17 @@ apply_preferred() {
     IDLE_ACTION="suspend-then-hibernate"
     IDLE_TIMEOUT_SEC=900
     ENABLE_HIBERNATE_GUARD=true
+    INSTALL_YAY=true
+    OFFLINE_MODE=false
+    # Auto-detect WiFi
+    if command -v nmcli &>/dev/null; then
+        local ssid
+        ssid="$(nmcli -t -f active,ssid dev wifi 2>/dev/null | grep '^yes:' | cut -d: -f2 | head -1)"
+        if [[ -n "$ssid" ]]; then
+            ENABLE_WIFI=true
+            WIFI_SSID="$ssid"
+        fi
+    fi
 }
 
 # ─── TUI Main Loop ────────────────────────────────────────────────────────────
@@ -1067,7 +1273,7 @@ run_tui() {
 
         case "$choice" in
             P) apply_preferred
-               dialog --msgbox "Preferred configuration applied!\n\n• LUKS + Hibernate + TPM\n• Hyprland + GNOME\n• illogical-impulse + all features\n• Auto disk, US/Pacific, Intel GPU" 12 50
+               run_dialog --msgbox "Preferred configuration applied!\n\n• LUKS + Hibernate + TPM\n• Hyprland + GNOME\n• illogical-impulse + all features\n• Auto disk, US/Pacific, Intel GPU\n• yay + suspend-then-hibernate" 14 52
                ;;
             1) configure_security ;;
             2) configure_desktop ;;
@@ -1077,6 +1283,9 @@ run_tui() {
             6) configure_graphics ;;
             7) configure_passwords ;;
             8) configure_sleep ;;
+            9) configure_wifi ;;
+            A) configure_packages ;;
+            O) configure_offline ;;
             S) configure_save_load ;;
             R) show_review ;;
         esac
