@@ -768,7 +768,7 @@ configure_system() {
     [[ -n "${vals[1]:-}" ]] && USERNAME_CFG="${vals[1]}"
     [[ -n "${vals[2]:-}" ]] && TIMEZONE_CFG="${vals[2]}"
     [[ -n "${vals[3]:-}" ]] && LOCALE_CFG="${vals[3]}"
-    [[ -n "${vals[4]:-}" ]] && KB_LAYOUT_CFG="${vals[4]}"
+    [[ -n "${vals[4]:-}" ]] && KB_LAYOUT_CFG="${vals[4]}" || true
 }
 
 _gfx_is_selected() { local d; for d in "${GFX_DRIVERS[@]}"; do [[ "$d" == "$1" ]] && return 0; done; return 1; }
@@ -798,7 +798,7 @@ configure_graphics() {
             5) GFX_DRIVERS+=("VMware / VirtualBox (open-source)") ;;
         esac
     done
-    [[ ${#GFX_DRIVERS[@]} -eq 0 ]] && GFX_DRIVERS=("Intel (open-source)")
+    [[ ${#GFX_DRIVERS[@]} -eq 0 ]] && GFX_DRIVERS=("Intel (open-source)") || true
 }
 
 password_summary() {
@@ -933,7 +933,7 @@ _configure_sleep_action() {
         "hybrid-sleep"              "Suspend + hibernate simultaneously (safest)"            "$([[ "$SLEEP_ACTION" == "hybrid-sleep" ]] && echo on || echo off)" \
         3>&1 1>&2 2>&3)" || return 0
     result="${result//\"/}"
-    [[ -n "$result" ]] && SLEEP_ACTION="$result"
+    [[ -n "$result" ]] && SLEEP_ACTION="$result" || true
 }
 
 _configure_suspend_mode() {
@@ -947,7 +947,7 @@ _configure_suspend_mode() {
         "s2idle"  "S0ix — modern standby (faster wake, Intel recommended)"       "$([[ "$SUSPEND_MODE" == "s2idle" ]] && echo on || echo off)" \
         3>&1 1>&2 2>&3)" || return 0
     result="${result//\"/}"
-    [[ -n "$result" ]] && SUSPEND_MODE="$result"
+    [[ -n "$result" ]] && SUSPEND_MODE="$result" || true
 }
 
 _configure_hibernate_delay() {
@@ -964,7 +964,7 @@ _configure_hibernate_delay() {
         "480min"  "8 hours"       "$([[ "$HIBERNATE_DELAY" == "480min" ]] && echo on || echo off)" \
         3>&1 1>&2 2>&3)" || return 0
     result="${result//\"/}"
-    [[ -n "$result" ]] && HIBERNATE_DELAY="$result"
+    [[ -n "$result" ]] && HIBERNATE_DELAY="$result" || true
 }
 
 _configure_lid_action() {
@@ -981,7 +981,7 @@ _configure_lid_action() {
         "ignore"                    "Do nothing"                                      "$([[ "$LID_ACTION" == "ignore" ]] && echo on || echo off)" \
         3>&1 1>&2 2>&3)" || return 0
     result="${result//\"/}"
-    [[ -n "$result" ]] && LID_ACTION="$result"
+    [[ -n "$result" ]] && LID_ACTION="$result" || true
 }
 
 _configure_idle_action() {
@@ -997,7 +997,7 @@ _configure_idle_action() {
         "ignore"                    "Do nothing"                                      "$([[ "$IDLE_ACTION" == "ignore" ]] && echo on || echo off)" \
         3>&1 1>&2 2>&3)" || return 0
     result="${result//\"/}"
-    [[ -n "$result" ]] && IDLE_ACTION="$result"
+    [[ -n "$result" ]] && IDLE_ACTION="$result" || true
 }
 
 _configure_idle_timeout() {
@@ -1014,7 +1014,7 @@ _configure_idle_timeout() {
         "3600"  "60 minutes"   "$([[ "$IDLE_TIMEOUT_SEC" == "3600" ]] && echo on || echo off)" \
         3>&1 1>&2 2>&3)" || return 0
     result="${result//\"/}"
-    [[ -n "$result" ]] && IDLE_TIMEOUT_SEC="$result"
+    [[ -n "$result" ]] && IDLE_TIMEOUT_SEC="$result" || true
 }
 
 desktop_summary() {
