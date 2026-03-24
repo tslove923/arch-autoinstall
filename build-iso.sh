@@ -502,10 +502,41 @@ paint_footer() {
     tput rc
 }
 
-# Wrapper: paint footer then exec dialog
+# Wrapper: paint footer then exec dialog with auto-width
+# Scans args for dialog box-type keywords, then replaces the width parameter
+# (3rd positional arg after the type's text) with terminal width - 6 if larger.
 run_dialog() {
     paint_footer
-    dialog "$@"
+    local term_w
+    term_w="$(tput cols 2>/dev/null || echo 80)"
+    local max_w=$(( term_w - 6 ))
+    (( max_w < 40 )) && max_w=40 || true
+
+    # Rewrite args: find box-type flag, skip its text arg, then height, then width
+    local -a new_args=()
+    local state="scan"  # scan | skip_text | skip_height | replace_width
+    for arg in "$@"; do
+        case "$state" in
+            scan)
+                new_args+=("$arg")
+                case "$arg" in
+                    --menu|--checklist|--radiolist|--msgbox|--infobox|--inputbox|--form|--mixedform|--passwordform)
+                        state="skip_text" ;;
+                esac
+                ;;
+            skip_text)   new_args+=("$arg"); state="skip_height" ;;
+            skip_height) new_args+=("$arg"); state="replace_width" ;;
+            replace_width)
+                if [[ "$arg" =~ ^[0-9]+$ ]] && (( arg < max_w )); then
+                    new_args+=("$max_w")
+                else
+                    new_args+=("$arg")
+                fi
+                state="scan"
+                ;;
+        esac
+    done
+    dialog "${new_args[@]}"
 }
 
 # ─── TUI Functions ─────────────────────────────────────────────────────────────
