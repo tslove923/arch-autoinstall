@@ -8,10 +8,12 @@
 # ISO provided by OSUOSL — https://osuosl.org/donate
 # Go Beavs! 🦫
 #
-# Usage:  ./build-iso.sh [--preferred] [--output <path>]
+# Usage:  ./build-iso.sh [--preferred] [--config <path>] [--creds <path>]
 #
 # Flags:
 #   --preferred    Skip TUI, use preferred configuration
+#   --config PATH  Load config from JSON (skip TUI for settings)
+#   --creds PATH   Load credentials from JSON (plaintext or .gpg)
 #   --output PATH  Output ISO path (default: ./arch-autoinstall-<date>.iso)
 #   --no-download  Skip ISO download, use cached copy
 ###############################################################################
@@ -49,6 +51,8 @@ AUTO_DISK=true
 TARGET_DISK=""
 HOSTNAME_CFG="archlinux"
 USERNAME_CFG=""
+USER_PASSWORD=""       # set in TUI, or prompted during install
+LUKS_PASSWORD=""       # set in TUI, or prompted during install
 TIMEZONE_CFG="US/Pacific"
 LOCALE_CFG="en_US"
 KB_LAYOUT_CFG="us"
@@ -56,6 +60,8 @@ GFX_DRIVER="Intel (open-source)"
 USE_PREFERRED=false
 SKIP_DOWNLOAD=false
 OUTPUT_ISO=""
+LOAD_CONFIG=""        # --config <path>
+LOAD_CREDS=""         # --creds <path>
 
 # ─── illogical-impulse feature catalog ─────────────────────────────────────────
 # Mirrors the catalog in dots-hyprland-dev/apply-features.sh
@@ -95,16 +101,19 @@ II_FEATURE_DEPS=( -1 -1 -1 -1 3 3 -1 -1 )
 II_FEATURE_SELECTED=( 1 1 1 1 1 1 1 1 )
 
 # ─── Parse arguments ───────────────────────────────────────────────────────────
-for arg in "$@"; do
-    case "$arg" in
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --preferred)   USE_PREFERRED=true ;;
         --no-download) SKIP_DOWNLOAD=true ;;
         --output)      shift; OUTPUT_ISO="$1" ;;
+        --config)      shift; LOAD_CONFIG="$1" ;;
+        --creds)       shift; LOAD_CREDS="$1" ;;
         -h|--help)
             sed -n '2,/^###/p' "$0" | head -n -1 | sed 's/^# \?//'
             exit 0
             ;;
     esac
+    shift
 done
 
 # ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -126,6 +135,187 @@ check_deps() {
     fi
 }
 
+# ─── Config JSON save/load ─────────────────────────────────────────────────────
+
+# Build a JSON string from current config state (no credentials)
+config_to_json() {
+    local ii_sel_json="["
+    local first=true
+    for i in "${!II_FEATURE_SELECTED[@]}"; do
+        $first || ii_sel_json+=","
+        ii_sel_json+="${II_FEATURE_SELECTED[$i]}"
+        first=false
+    done
+    ii_sel_json+="]"
+
+    cat << CFGJSON
+{
+    "_comment": "arch-autoinstall config — generated $(date -Iseconds)",
+    "enable_luks": $ENABLE_LUKS,
+    "enable_hibernate": $ENABLE_HIBERNATE,
+    "enable_tpm": $ENABLE_TPM,
+    "enable_hyprland": $ENABLE_HYPRLAND,
+    "enable_gnome": $ENABLE_GNOME,
+    "enable_ii": $ENABLE_II,
+    "enable_ii_features": $ENABLE_II_FEATURES,
+    "ii_feature_selected": $ii_sel_json,
+    "auto_disk": $AUTO_DISK,
+    "hostname": "$HOSTNAME_CFG",
+    "username": "$USERNAME_CFG",
+    "timezone": "$TIMEZONE_CFG",
+    "locale": "$LOCALE_CFG",
+    "kb_layout": "$KB_LAYOUT_CFG",
+    "gfx_driver": "$GFX_DRIVER"
+}
+CFGJSON
+}
+
+save_config_json() {
+    local path="$1"
+    config_to_json > "$path"
+    log "Config saved to: $path"
+}
+
+load_config_json() {
+    local path="$1"
+    if [[ ! -f "$path" ]]; then
+        err "Config file not found: $path"
+        exit 1
+    fi
+    info "Loading config from: $path"
+
+    # Parse JSON with sed/grep — no jq dependency required
+    _json_bool()  { grep -oP "\"$1\"\\s*:\\s*\\K(true|false)" "$path" | head -1; }
+    _json_str()   { grep -oP "\"$1\"\\s*:\\s*\"\\K[^\"]*" "$path" | head -1; }
+    _json_array() { grep -oP "\"$1\"\\s*:\\s*\\[\\K[^]]*" "$path" | head -1; }
+
+    local v
+    v="$(_json_bool enable_luks)";         [[ -n "$v" ]] && ENABLE_LUKS=$v
+    v="$(_json_bool enable_hibernate)";    [[ -n "$v" ]] && ENABLE_HIBERNATE=$v
+    v="$(_json_bool enable_tpm)";          [[ -n "$v" ]] && ENABLE_TPM=$v
+    v="$(_json_bool enable_hyprland)";     [[ -n "$v" ]] && ENABLE_HYPRLAND=$v
+    v="$(_json_bool enable_gnome)";        [[ -n "$v" ]] && ENABLE_GNOME=$v
+    v="$(_json_bool enable_ii)";           [[ -n "$v" ]] && ENABLE_II=$v
+    v="$(_json_bool enable_ii_features)";  [[ -n "$v" ]] && ENABLE_II_FEATURES=$v
+    v="$(_json_bool auto_disk)";           [[ -n "$v" ]] && AUTO_DISK=$v
+    v="$(_json_str hostname)";             [[ -n "$v" ]] && HOSTNAME_CFG="$v"
+    v="$(_json_str username)";             [[ -n "$v" ]] && USERNAME_CFG="$v"
+    v="$(_json_str timezone)";             [[ -n "$v" ]] && TIMEZONE_CFG="$v"
+    v="$(_json_str locale)";               [[ -n "$v" ]] && LOCALE_CFG="$v"
+    v="$(_json_str kb_layout)";            [[ -n "$v" ]] && KB_LAYOUT_CFG="$v"
+    v="$(_json_str gfx_driver)";           [[ -n "$v" ]] && GFX_DRIVER="$v"
+
+    # Parse ii_feature_selected array: [1,0,1,1,...]
+    v="$(_json_array ii_feature_selected)"
+    if [[ -n "$v" ]]; then
+        IFS=',' read -ra _sel <<< "$v"
+        for i in "${!_sel[@]}"; do
+            local s="${_sel[$i]// /}"  # trim spaces
+            [[ "$s" =~ ^[01]$ ]] && II_FEATURE_SELECTED[$i]=$s
+        done
+    fi
+
+    log "Config loaded"
+}
+
+# ─── Credentials JSON save/load ───────────────────────────────────────────────
+
+# Build a JSON string with credentials
+creds_to_json() {
+    local esc_user esc_luks
+    esc_user="$(printf '%s' "$USER_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    esc_luks="$(printf '%s' "$LUKS_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    cat << CREDJSON
+{
+    "_comment": "arch-autoinstall credentials — generated $(date -Iseconds)",
+    "user_password": "$esc_user",
+    "luks_password": "$esc_luks"
+}
+CREDJSON
+}
+
+save_credentials_json() {
+    local path="$1"
+    local mode="$2"   # "plain" or "gpg"
+
+    if [[ "$mode" == "gpg" ]]; then
+        if ! command -v gpg &>/dev/null; then
+            err "gpg not found — install gnupg to use encrypted credentials"
+            return 1
+        fi
+        creds_to_json | gpg --symmetric --cipher-algo AES256 --batch --yes -o "${path}.gpg"
+        log "Encrypted credentials saved to: ${path}.gpg"
+        info "Decrypt with: gpg -d ${path}.gpg"
+    else
+        creds_to_json > "$path"
+        chmod 600 "$path"
+        log "Credentials saved to: $path (plaintext, mode 600)"
+        warn "This file contains passwords in cleartext!"
+    fi
+}
+
+load_credentials_json() {
+    local path="$1"
+    local json_content
+
+    if [[ "$path" == *.gpg ]]; then
+        if ! command -v gpg &>/dev/null; then
+            err "gpg not found — install gnupg to decrypt credentials"
+            exit 1
+        fi
+        info "Decrypting credentials from: $path"
+        json_content="$(gpg -d --batch "$path" 2>/dev/null)" || {
+            err "Failed to decrypt $path"
+            exit 1
+        }
+    elif [[ -f "$path" ]]; then
+        json_content="$(cat "$path")"
+    else
+        err "Credentials file not found: $path"
+        exit 1
+    fi
+
+    local v
+    v="$(echo "$json_content" | grep -oP '"user_password"\s*:\s*"\K[^"]*' | head -1)"
+    [[ -n "$v" ]] && USER_PASSWORD="$v"
+    v="$(echo "$json_content" | grep -oP '"luks_password"\s*:\s*"\K[^"]*' | head -1)"
+    [[ -n "$v" ]] && LUKS_PASSWORD="$v"
+
+    log "Credentials loaded from: $path"
+}
+
+# TUI: prompt user to save credentials
+prompt_save_credentials() {
+    if [[ -z "$USER_PASSWORD" && -z "$LUKS_PASSWORD" ]]; then
+        return 0  # nothing to save
+    fi
+
+    local result
+    result="$(dialog \
+        --title " Save Credentials " \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --radiolist "\nSave passwords for future builds?\n\nEncrypted uses GPG (AES-256 symmetric).\nPlaintext is chmod 600 but visible on disk.\n" \
+        15 62 3 \
+        1 "Don't save credentials" on \
+        2 "Save as GPG-encrypted JSON (.gpg)" off \
+        3 "Save as plaintext JSON (chmod 600)" off \
+        3>&1 1>&2 2>&3)" || return 0
+
+    result="${result//\"/}"
+    case "$result" in
+        2)
+            local cred_path="${SCRIPT_DIR}/configs/credentials.json"
+            save_credentials_json "$cred_path" "gpg"
+            dialog --msgbox "Encrypted credentials saved to:\n\n  configs/credentials.json.gpg\n\nLoad with: ./build-iso.sh --creds configs/credentials.json.gpg" 10 60
+            ;;
+        3)
+            local cred_path="${SCRIPT_DIR}/configs/credentials.json"
+            save_credentials_json "$cred_path" "plain"
+            dialog --msgbox "Plaintext credentials saved to:\n\n  configs/credentials.json\n\nLoad with: ./build-iso.sh --creds configs/credentials.json\n\n⚠ Contains passwords in cleartext!" 11 60
+            ;;
+    esac
+}
+
 # ─── dialog color theme ────────────────────────────────────────────────────────
 # Black background, white text, orange (#cc3c09 ≈ color 166) accents
 setup_dialog_colors() {
@@ -137,7 +327,7 @@ use_colors = ON
 screen_color = (WHITE,BLACK,ON)
 title_color = (WHITE,BLACK,ON)
 border_color = (WHITE,BLACK,ON)
-window_color = (WHITE,BLACK,OFF)
+border2_color = (RED,BLACK,ON)
 shadow_color = (BLACK,BLACK,ON)
 dialog_color = (WHITE,BLACK,OFF)
 button_active_color = (WHITE,RED,ON)
@@ -146,17 +336,20 @@ button_key_inactive_color = (RED,WHITE,OFF)
 button_key_active_color = (WHITE,RED,ON)
 button_label_active_color = (WHITE,RED,ON)
 button_label_inactive_color = (BLACK,WHITE,ON)
-form_active_color = (WHITE,RED,ON)
-form_inactive_color = (WHITE,BLACK,OFF)
+form_active_text_color = (WHITE,RED,ON)
+form_text_color = (WHITE,BLACK,OFF)
 form_item_readonly_color = (CYAN,BLACK,ON)
 inputbox_color = (WHITE,BLACK,OFF)
 inputbox_border_color = (WHITE,BLACK,ON)
+inputbox_border2_color = (RED,BLACK,ON)
 searchbox_color = (WHITE,BLACK,OFF)
 searchbox_title_color = (WHITE,BLACK,ON)
 searchbox_border_color = (WHITE,BLACK,ON)
+searchbox_border2_color = (RED,BLACK,ON)
 position_indicator_color = (RED,BLACK,ON)
 menubox_color = (WHITE,BLACK,OFF)
 menubox_border_color = (WHITE,BLACK,ON)
+menubox_border2_color = (RED,BLACK,ON)
 item_color = (WHITE,BLACK,OFF)
 item_selected_color = (WHITE,RED,ON)
 tag_color = (RED,BLACK,ON)
@@ -167,6 +360,8 @@ check_color = (WHITE,BLACK,OFF)
 check_selected_color = (WHITE,RED,ON)
 uarrow_color = (RED,BLACK,ON)
 darrow_color = (RED,BLACK,ON)
+itemhelp_color = (WHITE,BLACK,OFF)
+gauge_color = (WHITE,RED,ON)
 DLGEOF
 }
 
@@ -212,7 +407,7 @@ show_main_menu() {
         --ok-label "Select" \
         --cancel-label "Build ISO" \
         --menu "\nConfigure your Arch Linux installation.\nSelect an option to modify, or press Build ISO when ready.\n" \
-        22 72 10 \
+        24 72 12 \
         "P" "★ Use Preferred Setup (recommended)" \
         "1" "Security: LUKS / Hibernate / TPM  [$(security_summary)]" \
         "2" "Desktop: Hyprland / GNOME / illogical-impulse" \
@@ -220,6 +415,8 @@ show_main_menu() {
         "4" "Disk: Target disk selection" \
         "5" "System: Hostname, user, locale, timezone" \
         "6" "Graphics: GPU driver selection" \
+        "7" "Passwords: User & LUKS encryption  [$(password_summary)]" \
+        "S" "Save / Load config" \
         "R" "Review configuration" \
         3>&1 1>&2 2>&3)" || return 1
     echo "$result"
@@ -468,6 +665,151 @@ configure_graphics() {
     esac
 }
 
+password_summary() {
+    local parts=()
+    [[ -n "$USER_PASSWORD" ]] && parts+=("user:set") || parts+=("user:prompt")
+    if $ENABLE_LUKS; then
+        [[ -n "$LUKS_PASSWORD" ]] && parts+=("LUKS:set") || parts+=("LUKS:prompt")
+    fi
+    echo "${parts[*]}"
+}
+
+configure_passwords() {
+    # ── User password ──
+    local pw1 pw2
+    pw1="$(dialog \
+        --title " User Password " \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --insecure \
+        --passwordbox "\nEnter password for user '${USERNAME_CFG:-<username>}'.\nLeave blank to be prompted during install.\n" \
+        10 55 \
+        3>&1 1>&2 2>&3)" || return 0
+
+    if [[ -n "$pw1" ]]; then
+        pw2="$(dialog \
+            --title " Confirm User Password " \
+            --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+            --insecure \
+            --passwordbox "\nConfirm password:" \
+            9 55 \
+            3>&1 1>&2 2>&3)" || return 0
+
+        if [[ "$pw1" != "$pw2" ]]; then
+            dialog --title " Error " --msgbox "\nPasswords do not match. Try again." 7 45
+            return 0
+        fi
+        USER_PASSWORD="$pw1"
+        dialog --title " ✓ " --msgbox "\nUser password set." 7 30
+    else
+        USER_PASSWORD=""
+        dialog --title " Info " --msgbox "\nUser password cleared.\nYou will be prompted during install." 8 48
+    fi
+
+    # ── LUKS encryption password ──
+    if $ENABLE_LUKS; then
+        pw1="$(dialog \
+            --title " LUKS Encryption Password " \
+            --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+            --insecure \
+            --passwordbox "\nEnter disk encryption (LUKS) password.\nLeave blank to be prompted during install.\n\nThis is the password you type at every boot\n(until TPM auto-unlock is configured).\n" \
+            13 58 \
+            3>&1 1>&2 2>&3)" || return 0
+
+        if [[ -n "$pw1" ]]; then
+            pw2="$(dialog \
+                --title " Confirm LUKS Password " \
+                --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+                --insecure \
+                --passwordbox "\nConfirm LUKS password:" \
+                9 55 \
+                3>&1 1>&2 2>&3)" || return 0
+
+            if [[ "$pw1" != "$pw2" ]]; then
+                dialog --title " Error " --msgbox "\nPasswords do not match. Try again." 7 45
+                return 0
+            fi
+            LUKS_PASSWORD="$pw1"
+            dialog --title " ✓ " --msgbox "\nLUKS encryption password set." 7 38
+        else
+            LUKS_PASSWORD=""
+            dialog --title " Info " --msgbox "\nLUKS password cleared.\nYou will be prompted during install." 8 48
+        fi
+    fi
+}
+
+configure_save_load() {
+    local result
+    result="$(dialog \
+        --title " Save / Load Configuration " \
+        --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+        --menu "\nSave current config or load a previous one.\nCredentials are saved separately.\n" \
+        16 65 5 \
+        1 "Save config to JSON" \
+        2 "Load config from JSON" \
+        3 "Save credentials (GPG-encrypted)" \
+        4 "Save credentials (plaintext)" \
+        5 "Load credentials from JSON / .gpg" \
+        3>&1 1>&2 2>&3)" || return 0
+
+    result="${result//\"/}"
+    case "$result" in
+        1)  # Save config
+            local save_path
+            save_path="$(dialog \
+                --title " Save Config " \
+                --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+                --inputbox "\nSave config JSON to:" \
+                9 60 "${SCRIPT_DIR}/configs/my-config.json" \
+                3>&1 1>&2 2>&3)" || return 0
+            if [[ -n "$save_path" ]]; then
+                mkdir -p "$(dirname "$save_path")"
+                save_config_json "$save_path"
+                dialog --msgbox "Config saved to:\n\n  $save_path\n\nReuse with: ./build-iso.sh --config $save_path" 10 60
+            fi
+            ;;
+        2)  # Load config
+            local load_path
+            load_path="$(dialog \
+                --title " Load Config " \
+                --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+                --inputbox "\nLoad config JSON from:" \
+                9 60 "${SCRIPT_DIR}/configs/last-config.json" \
+                3>&1 1>&2 2>&3)" || return 0
+            if [[ -n "$load_path" && -f "$load_path" ]]; then
+                load_config_json "$load_path"
+                dialog --msgbox "Config loaded from:\n\n  $load_path" 8 55
+            elif [[ -n "$load_path" ]]; then
+                dialog --msgbox "File not found:\n\n  $load_path" 8 55
+            fi
+            ;;
+        3)  # Save creds encrypted
+            local cred_path="${SCRIPT_DIR}/configs/credentials.json"
+            save_credentials_json "$cred_path" "gpg" && \
+                dialog --msgbox "Encrypted credentials saved:\n\n  ${cred_path}.gpg" 8 55
+            ;;
+        4)  # Save creds plaintext
+            local cred_path="${SCRIPT_DIR}/configs/credentials.json"
+            save_credentials_json "$cred_path" "plain" && \
+                dialog --msgbox "Plaintext credentials saved:\n\n  ${cred_path}\n\n⚠ Contains passwords in cleartext!" 10 55
+            ;;
+        5)  # Load creds
+            local load_path
+            load_path="$(dialog \
+                --title " Load Credentials " \
+                --backtitle "                                                             osuosl.org/donate  Go Beavs!" \
+                --inputbox "\nLoad credentials from (.json or .json.gpg):" \
+                9 60 "${SCRIPT_DIR}/configs/credentials.json.gpg" \
+                3>&1 1>&2 2>&3)" || return 0
+            if [[ -n "$load_path" ]] && [[ -f "$load_path" ]]; then
+                load_credentials_json "$load_path"
+                dialog --msgbox "Credentials loaded from:\n\n  $load_path" 8 55
+            elif [[ -n "$load_path" ]]; then
+                dialog --msgbox "File not found:\n\n  $load_path" 8 55
+            fi
+            ;;
+    esac
+}
+
 show_review() {
     local luks_str="Disabled"; $ENABLE_LUKS && luks_str="Enabled"
     local hib_str="Disabled";  $ENABLE_HIBERNATE && hib_str="Enabled"
@@ -480,6 +822,11 @@ show_review() {
     local ii_str="No"
     $ENABLE_II && ii_str="Yes"
     $ENABLE_II_FEATURES && ii_str="Yes + custom features"
+    local pw_user="prompt at install"; [[ -n "$USER_PASSWORD" ]] && pw_user="set (••••)"
+    local pw_luks="N/A"
+    if $ENABLE_LUKS; then
+        pw_luks="prompt at install"; [[ -n "$LUKS_PASSWORD" ]] && pw_luks="set (••••)"
+    fi
 
     # Build ii feature summary for review
     local ii_features_str=""
@@ -514,6 +861,10 @@ show_review() {
 ║    Timezone:    $TIMEZONE_CFG
 ║    GPU driver:  $GFX_DRIVER
 ║    Disk mode:   $disk_str
+║                                          ║
+║  Passwords                               ║
+║    User password:  $pw_user
+║    LUKS password:  $pw_luks
 ║                                          ║
 ║  Post-Install (first boot):              ║
 ║    • Secure Boot setup (if TPM enabled)  ║
@@ -558,9 +909,19 @@ run_tui() {
             4) configure_disk ;;
             5) configure_system ;;
             6) configure_graphics ;;
+            7) configure_passwords ;;
+            S) configure_save_load ;;
             R) show_review ;;
         esac
     done
+
+    # Auto-save config after TUI
+    mkdir -p "${SCRIPT_DIR}/configs"
+    save_config_json "${SCRIPT_DIR}/configs/last-config.json"
+
+    # Offer to save credentials
+    prompt_save_credentials
+
     clear
 }
 
@@ -600,10 +961,20 @@ generate_archinstall_config() {
     # Disk encryption section
     local encryption_json="null"
     if $ENABLE_LUKS; then
-        encryption_json='{
-        "encryption_type": "luks",
-        "partitions": ["__ROOT_PART_UUID__"]
-    }'
+        # archinstall: !encryption-password in disk_encryption triggers LUKS setup
+        # If empty, archinstall will prompt interactively
+        local luks_pw_json='""'
+        if [[ -n "$LUKS_PASSWORD" ]]; then
+            # Escape special JSON characters
+            local escaped_luks
+            escaped_luks="$(printf '%s' "$LUKS_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+            luks_pw_json="\"${escaped_luks}\""
+        fi
+        encryption_json="{
+        \"encryption_type\": \"luks\",
+        \"!encryption-password\": ${luks_pw_json},
+        \"partitions\": [\"__ROOT_PART_UUID__\"]
+    }"
     fi
 
     # Btrfs subvolumes — always include @swap if hibernate enabled
@@ -703,13 +1074,17 @@ generate_archinstall_config() {
 }
 JSONEOF
 
-    # User credentials — will prompt during install if not set
+    # User credentials — password empty => archinstall prompts interactively
     if [[ -n "$USERNAME_CFG" ]]; then
+        local escaped_user_pw=""
+        if [[ -n "$USER_PASSWORD" ]]; then
+            escaped_user_pw="$(printf '%s' "$USER_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+        fi
         cat > "$config_dir/user_credentials.json" << CREDEOF
 {
     "!users": [
         {
-            "!password": "",
+            "!password": "$escaped_user_pw",
             "sudo": true,
             "username": "$USERNAME_CFG"
         }
@@ -1265,9 +1640,21 @@ HOOKEOF
 check_deps
 setup_dialog_colors
 
+# Load config/creds from CLI flags if provided
+if [[ -n "$LOAD_CONFIG" ]]; then
+    load_config_json "$LOAD_CONFIG"
+fi
+if [[ -n "$LOAD_CREDS" ]]; then
+    load_credentials_json "$LOAD_CREDS"
+fi
+
 show_banner
 
-if $USE_PREFERRED; then
+if [[ -n "$LOAD_CONFIG" ]]; then
+    # Config loaded from file — skip TUI, just show what was loaded
+    info "Configuration loaded from: $LOAD_CONFIG"
+    [[ -n "$LOAD_CREDS" ]] && info "Credentials loaded from: $LOAD_CREDS"
+elif $USE_PREFERRED; then
     apply_preferred
     info "Using preferred configuration"
 else
