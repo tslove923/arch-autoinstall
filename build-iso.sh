@@ -90,7 +90,7 @@ ENABLE_OMARCHY=false             # omarchy Hyprland rice (alternative to ii)
 INSTALL_YAY=true                 # install yay AUR helper
 EXTRA_PACKAGES=""               # space-separated extra pacman packages
 
-# Predefined AUR packages (selectable checklist)
+# Predefined AUR packages (selectable checklist) — alphabetized
 AUR_PACKAGE_LIST=(
     "batctl-tui"
     "bluebubbles-bin"
@@ -99,22 +99,23 @@ AUR_PACKAGE_LIST=(
     "icu76"
     "intel-npu-compiler"
     "intel-npu-driver"
+    "microsoft-edge-stable-bin"
+    "obs-gstreamer"
     "openvino"
     "openvino-intel-gpu-plugin"
     "openvino-intel-npu-plugin"
-    "microsoft-edge-stable-bin"
-    "obs-gstreamer"
     "remmina-git"
-    "xpadneo-dkms"
     "spacecadetpinball-bin"
     "sunshine-bin"
-    "xemu"
     "upscayl-bin"
     "visual-studio-code-bin"
+    "xemu"
+    "xpadneo-dkms"
     "zen-browser-bin"
 )
 AUR_PACKAGE_SELECTED=()  # parallel array: 0=off, 1=on
 for _i in "${!AUR_PACKAGE_LIST[@]}"; do AUR_PACKAGE_SELECTED+=( 0 ); done; unset _i
+CUSTOM_AUR_PACKAGES=""   # additional user-typed AUR packages
 
 # ─── illogical-impulse feature catalog ─────────────────────────────────────────
 # Mirrors the catalog in dots-hyprland-dev/apply-features.sh
@@ -246,6 +247,7 @@ config_to_json() {
     "enable_omarchy": $ENABLE_OMARCHY,
     "install_yay": $INSTALL_YAY,
     "extra_packages": "$EXTRA_PACKAGES",
+    "custom_aur_packages": "$CUSTOM_AUR_PACKAGES",
     "aur_package_selected": $(_aur_sel_json)
 }
 CFGJSON
@@ -302,6 +304,7 @@ load_config_json() {
     v="$(_json_bool enable_omarchy)";      [[ -n "$v" ]] && ENABLE_OMARCHY=$v
     v="$(_json_bool install_yay)";         [[ -n "$v" ]] && INSTALL_YAY=$v
     v="$(_json_str extra_packages)";       [[ -n "$v" ]] && EXTRA_PACKAGES="$v"
+    v="$(_json_str custom_aur_packages)";   [[ -n "$v" ]] && CUSTOM_AUR_PACKAGES="$v"
     # Parse aur_package_selected array: [0,1,0,...]
     v="$(_json_array aur_package_selected)"
     if [[ -n "$v" ]]; then
@@ -1043,6 +1046,7 @@ packages_summary() {
     [[ -n "$EXTRA_PACKAGES" ]] && parts+=("pkg")
     for s in "${AUR_PACKAGE_SELECTED[@]}"; do (( s )) && (( aur_count++ )); done
     (( aur_count > 0 )) && parts+=("aur:${aur_count}")
+    [[ -n "$CUSTOM_AUR_PACKAGES" ]] && parts+=("custom-aur")
     [[ ${#parts[@]} -eq 0 ]] && echo "defaults" && return
     echo "${parts[*]}"
 }
@@ -1167,6 +1171,16 @@ configure_packages() {
         for tag in $result; do
             AUR_PACKAGE_SELECTED[$tag]=1
         done
+
+        # Custom AUR packages (free-text)
+        result="$(run_dialog \
+            --title " Custom AUR Packages " \
+            --backtitle "Arch Linux Autoinstaller Configuration" \
+            --form "\nSpace-separated additional AUR package names:\n" \
+            10 72 1 \
+            "Packages:" 1 1 "$CUSTOM_AUR_PACKAGES" 1 12 55 256 \
+            3>&1 1>&2 2>&3)" || true
+        CUSTOM_AUR_PACKAGES="${result:-}"
     fi
 }
 
@@ -1290,6 +1304,7 @@ show_review() {
     done
     local aur_str="(none)"
     (( aur_count > 0 )) && aur_str="${aur_count} selected"
+    local custom_aur_str="${CUSTOM_AUR_PACKAGES:-(none)}"
 
     run_dialog \
         --title " Configuration Review " \
@@ -1317,6 +1332,7 @@ show_review() {
 ║    Install yay (AUR): $yay_str
 ║    Extra pacman:      $extra_str
 ║    AUR packages:      $aur_str
+║    Custom AUR:        $custom_aur_str
 ║                                                  ║
 ║  System                                          ║
 ║    Hostname:    $HOSTNAME_CFG
