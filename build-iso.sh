@@ -18,6 +18,7 @@
 #   --no-download  Skip ISO download, use cached copy
 ###############################################################################
 set -euo pipefail
+trap 'echo "ERROR at line $LINENO (exit $?)" >&2' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORK_DIR="${SCRIPT_DIR}/work"
@@ -2108,11 +2109,11 @@ AUTOEOF
 download_iso() {
     mkdir -p "$ISO_CACHE"
 
-    step "Downloading Arch ISO from OSUOSL"
-    info "Mirror: $ISO_MIRROR"
-    info "ISO provided by OSUOSL — https://osuosl.org/donate"
-    info "Go Beavs! 🦫"
-    echo ""
+    step "Downloading Arch ISO from OSUOSL" >&2
+    info "Mirror: $ISO_MIRROR" >&2
+    info "ISO provided by OSUOSL — https://osuosl.org/donate" >&2
+    info "Go Beavs! 🦫" >&2
+    echo "" >&2
 
     # Detect the latest ISO filename
     ISO_FILENAME="$(curl -sL "$ISO_MIRROR" | grep -oP 'archlinux-\d{4}\.\d{2}\.\d{2}-x86_64\.iso' | head -1)"
@@ -2120,15 +2121,15 @@ download_iso() {
         err "Could not detect ISO filename from OSUOSL mirror"
         exit 1
     fi
-    info "Latest ISO: $ISO_FILENAME"
+    info "Latest ISO: $ISO_FILENAME" >&2
 
     local iso_path="$ISO_CACHE/$ISO_FILENAME"
     if [[ -f "$iso_path" ]]; then
-        log "ISO already cached: $iso_path"
+        log "ISO already cached: $iso_path" >&2
     else
-        info "Downloading $ISO_FILENAME..."
+        info "Downloading $ISO_FILENAME..." >&2
         curl -L --progress-bar -o "$iso_path" "${ISO_MIRROR}${ISO_FILENAME}"
-        log "Downloaded: $iso_path"
+        log "Downloaded: $iso_path" >&2
     fi
 
     # Verify checksum
@@ -2137,7 +2138,7 @@ download_iso() {
     if grep -q "$ISO_FILENAME" "$sha_file"; then
         cd "$ISO_CACHE"
         if sha256sum -c <(grep "$ISO_FILENAME" "$sha_file") 2>/dev/null; then
-            log "SHA256 checksum verified"
+            log "SHA256 checksum verified" >&2
         else
             err "Checksum mismatch! Re-download the ISO."
             rm -f "$iso_path"
@@ -2145,7 +2146,7 @@ download_iso() {
         fi
         cd "$SCRIPT_DIR"
     else
-        warn "Could not verify checksum (file not in sha256sums.txt)"
+        warn "Could not verify checksum (file not in sha256sums.txt)" >&2
     fi
 
     echo "$iso_path"
