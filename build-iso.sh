@@ -45,6 +45,9 @@ ENABLE_HIBERNATE=true
 ENABLE_TPM=true
 ENABLE_HYPRLAND=true
 ENABLE_GNOME=true
+ENABLE_KDE=false
+ENABLE_CINNAMON=false
+ENABLE_XFCE=false
 ENABLE_II=true           # illogical-impulse
 ENABLE_II_FEATURES=true  # custom feature branches
 AUTO_DISK=true
@@ -86,7 +89,32 @@ ENABLE_OMARCHY=false             # omarchy Hyprland rice (alternative to ii)
 # Optional packages
 INSTALL_YAY=true                 # install yay AUR helper
 EXTRA_PACKAGES=""               # space-separated extra pacman packages
-AUR_PACKAGES=""                 # space-separated AUR packages (requires yay)
+
+# Predefined AUR packages (selectable checklist)
+AUR_PACKAGE_LIST=(
+    "batctl-tui"
+    "bluebubbles-bin"
+    "gazelle-tui"
+    "gdm-settings"
+    "icu76"
+    "intel-npu-compiler"
+    "intel-npu-driver"
+    "openvino"
+    "openvino-intel-gpu-plugin"
+    "openvino-intel-npu-plugin"
+    "microsoft-edge-stable-bin"
+    "obs-gstreamer"
+    "remmina-git"
+    "xpadneo-dkms"
+    "spacecadetpinball-bin"
+    "sunshine-bin"
+    "xemu"
+    "upscayl-bin"
+    "visual-studio-code-bin"
+    "zen-browser-bin"
+)
+AUR_PACKAGE_SELECTED=()  # parallel array: 0=off, 1=on
+for _i in "${!AUR_PACKAGE_LIST[@]}"; do AUR_PACKAGE_SELECTED+=( 0 ); done; unset _i
 
 # ─── illogical-impulse feature catalog ─────────────────────────────────────────
 # Mirrors the catalog in dots-hyprland-dev/apply-features.sh
@@ -163,6 +191,17 @@ check_deps() {
 # ─── Config JSON save/load ─────────────────────────────────────────────────────
 
 # Build a JSON string from current config state (no credentials)
+_aur_sel_json() {
+    local j="["
+    local first=true
+    for s in "${AUR_PACKAGE_SELECTED[@]}"; do
+        $first || j+=","
+        j+="$s"
+        first=false
+    done
+    echo "${j}]"
+}
+
 config_to_json() {
     local ii_sel_json="["
     local first=true
@@ -181,6 +220,9 @@ config_to_json() {
     "enable_tpm": $ENABLE_TPM,
     "enable_hyprland": $ENABLE_HYPRLAND,
     "enable_gnome": $ENABLE_GNOME,
+    "enable_kde": $ENABLE_KDE,
+    "enable_cinnamon": $ENABLE_CINNAMON,
+    "enable_xfce": $ENABLE_XFCE,
     "enable_ii": $ENABLE_II,
     "enable_ii_features": $ENABLE_II_FEATURES,
     "ii_feature_selected": $ii_sel_json,
@@ -204,7 +246,7 @@ config_to_json() {
     "enable_omarchy": $ENABLE_OMARCHY,
     "install_yay": $INSTALL_YAY,
     "extra_packages": "$EXTRA_PACKAGES",
-    "aur_packages": "$AUR_PACKAGES"
+    "aur_package_selected": $(_aur_sel_json)
 }
 CFGJSON
 }
@@ -234,6 +276,9 @@ load_config_json() {
     v="$(_json_bool enable_tpm)";          [[ -n "$v" ]] && ENABLE_TPM=$v
     v="$(_json_bool enable_hyprland)";     [[ -n "$v" ]] && ENABLE_HYPRLAND=$v
     v="$(_json_bool enable_gnome)";        [[ -n "$v" ]] && ENABLE_GNOME=$v
+    v="$(_json_bool enable_kde)";          [[ -n "$v" ]] && ENABLE_KDE=$v
+    v="$(_json_bool enable_cinnamon)";     [[ -n "$v" ]] && ENABLE_CINNAMON=$v
+    v="$(_json_bool enable_xfce)";         [[ -n "$v" ]] && ENABLE_XFCE=$v
     v="$(_json_bool enable_ii)";           [[ -n "$v" ]] && ENABLE_II=$v
     v="$(_json_bool enable_ii_features)";  [[ -n "$v" ]] && ENABLE_II_FEATURES=$v
     v="$(_json_str suspend_mode)";         [[ -n "$v" ]] && SUSPEND_MODE="$v"
@@ -257,7 +302,14 @@ load_config_json() {
     v="$(_json_bool enable_omarchy)";      [[ -n "$v" ]] && ENABLE_OMARCHY=$v
     v="$(_json_bool install_yay)";         [[ -n "$v" ]] && INSTALL_YAY=$v
     v="$(_json_str extra_packages)";       [[ -n "$v" ]] && EXTRA_PACKAGES="$v"
-    v="$(_json_str aur_packages)";         [[ -n "$v" ]] && AUR_PACKAGES="$v"
+    # Parse aur_package_selected array: [0,1,0,...]
+    v="$(_json_array aur_package_selected)"
+    if [[ -n "$v" ]]; then
+        IFS=',' read -ra _asel <<< "$v"
+        for i in "${!_asel[@]}"; do
+            [[ $i -lt ${#AUR_PACKAGE_LIST[@]} ]] && AUR_PACKAGE_SELECTED[$i]=${_asel[$i]}
+        done
+    fi
 
     # Parse ii_feature_selected array: [1,0,1,1,...]
     v="$(_json_array ii_feature_selected)"
@@ -473,7 +525,7 @@ show_main_menu() {
         28 74 17 \
         "P" "★ Use Preferred Setup (recommended)" \
         "1" "Security: LUKS / Hibernate / TPM  [$(security_summary)]" \
-        "2" "Desktop: Hyprland / GNOME / ii / omarchy  [$(desktop_summary)]" \
+        "2" "Desktop: environments & rices  [$(desktop_summary)]" \
         "3" "illogical-impulse features  [$ii_summary]" \
         "4" "Disk: Target disk selection" \
         "5" "System: Hostname, user, locale, timezone" \
@@ -537,22 +589,28 @@ configure_desktop() {
     local -a args=()
     args+=(1 "Hyprland (tiling Wayland compositor)" "$($ENABLE_HYPRLAND && echo on || echo off)")
     args+=(2 "GNOME (full desktop environment)" "$($ENABLE_GNOME && echo on || echo off)")
+    args+=(3 "KDE Plasma (feature-rich Qt desktop)" "$($ENABLE_KDE && echo on || echo off)")
+    args+=(4 "Cinnamon (traditional GTK desktop)" "$($ENABLE_CINNAMON && echo on || echo off)")
+    args+=(5 "XFCE (lightweight GTK desktop)" "$($ENABLE_XFCE && echo on || echo off)")
 
     local result
     result="$(run_dialog \
         --title " Desktop Environment " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
         --checklist "\nSelect desktop environments to install.\n" \
-        12 60 2 \
+        16 62 5 \
         "${args[@]}" \
         3>&1 1>&2 2>&3)" || return 0
 
-    ENABLE_HYPRLAND=false; ENABLE_GNOME=false
+    ENABLE_HYPRLAND=false; ENABLE_GNOME=false; ENABLE_KDE=false; ENABLE_CINNAMON=false; ENABLE_XFCE=false
     for item in $result; do
         item="${item//\"/}"
         case "$item" in
             1) ENABLE_HYPRLAND=true ;;
             2) ENABLE_GNOME=true ;;
+            3) ENABLE_KDE=true ;;
+            4) ENABLE_CINNAMON=true ;;
+            5) ENABLE_XFCE=true ;;
         esac
     done
 
@@ -960,6 +1018,9 @@ desktop_summary() {
     local parts=()
     $ENABLE_HYPRLAND && parts+=("Hyprland")
     $ENABLE_GNOME && parts+=("GNOME")
+    $ENABLE_KDE && parts+=("KDE")
+    $ENABLE_CINNAMON && parts+=("Cinnamon")
+    $ENABLE_XFCE && parts+=("XFCE")
     $ENABLE_II && parts+=("ii")
     $ENABLE_OMARCHY && parts+=("omarchy")
     [[ ${#parts[@]} -eq 0 ]] && echo "(none)" && return
@@ -977,10 +1038,11 @@ wifi_summary() {
 }
 
 packages_summary() {
-    local parts=()
+    local parts=() aur_count=0
     $INSTALL_YAY && parts+=("yay")
     [[ -n "$EXTRA_PACKAGES" ]] && parts+=("pkg")
-    [[ -n "$AUR_PACKAGES" ]] && parts+=("aur")
+    for s in "${AUR_PACKAGE_SELECTED[@]}"; do (( s )) && (( aur_count++ )); done
+    (( aur_count > 0 )) && parts+=("aur:${aur_count}")
     [[ ${#parts[@]} -eq 0 ]] && echo "defaults" && return
     echo "${parts[*]}"
 }
@@ -1072,24 +1134,39 @@ configure_packages() {
     result="${result//\"/}"
     [[ "$result" == *"1"* ]] && INSTALL_YAY=true || INSTALL_YAY=false
 
-    # Additional packages form
+    # Extra pacman packages (free-text)
     result="$(run_dialog \
-        --title " Additional Packages " \
+        --title " Extra Pacman Packages " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
-        --form "\nSpace-separated package names.\nAUR packages require yay (auto-enabled if needed).\n" \
-        14 72 2 \
-        "Extra pacman pkgs:" 1 1 "$EXTRA_PACKAGES" 1 22 45 256 \
-        "AUR packages:"      2 1 "$AUR_PACKAGES"   2 22 45 256 \
-        3>&1 1>&2 2>&3)" || return 0
+        --form "\nSpace-separated pacman package names:\n" \
+        10 72 1 \
+        "Packages:" 1 1 "$EXTRA_PACKAGES" 1 12 55 256 \
+        3>&1 1>&2 2>&3)" || true
+    [[ -n "$result" ]] && EXTRA_PACKAGES="$result" || EXTRA_PACKAGES=""
 
-    local -a vals
-    mapfile -t vals <<< "$result"
-    EXTRA_PACKAGES="${vals[0]:-}"
-    AUR_PACKAGES="${vals[1]:-}"
+    # AUR packages checklist (only if yay is enabled)
+    if $INSTALL_YAY; then
+        local -a aur_args=()
+        for i in "${!AUR_PACKAGE_LIST[@]}"; do
+            local state="off"
+            (( AUR_PACKAGE_SELECTED[i] )) && state="on"
+            aur_args+=( "$i" "${AUR_PACKAGE_LIST[$i]}" "$state" )
+        done
 
-    if [[ -n "$AUR_PACKAGES" ]] && ! $INSTALL_YAY; then
-        INSTALL_YAY=true
-        run_dialog --msgbox "\nyay auto-enabled (required for AUR packages)." 7 52
+        result="$(run_dialog \
+            --title " AUR Packages " \
+            --backtitle "Arch Linux Autoinstaller Configuration" \
+            --checklist "\nSelect AUR packages to install (space to toggle).\nRequires yay.\n" \
+            28 55 20 \
+            "${aur_args[@]}" \
+            3>&1 1>&2 2>&3)" || return 0
+
+        # Reset all to 0, then enable selected
+        for i in "${!AUR_PACKAGE_SELECTED[@]}"; do AUR_PACKAGE_SELECTED[$i]=0; done
+        result="${result//\"/}"
+        for tag in $result; do
+            AUR_PACKAGE_SELECTED[$tag]=1
+        done
     fi
 }
 
@@ -1174,6 +1251,9 @@ show_review() {
     local de_list=""
     $ENABLE_HYPRLAND && de_list+="Hyprland "
     $ENABLE_GNOME && de_list+="GNOME "
+    $ENABLE_KDE && de_list+="KDE "
+    $ENABLE_CINNAMON && de_list+="Cinnamon "
+    $ENABLE_XFCE && de_list+="XFCE "
     [[ -z "$de_list" ]] && de_list="(none)"
     local ii_str="No"
     $ENABLE_II && ii_str="Yes"
@@ -1201,7 +1281,15 @@ show_review() {
     # Packages summary
     local yay_str="No"; $INSTALL_YAY && yay_str="Yes"
     local extra_str="${EXTRA_PACKAGES:-(none)}"
-    local aur_str="${AUR_PACKAGES:-(none)}"
+    local aur_count=0 aur_list=""
+    for i in "${!AUR_PACKAGE_SELECTED[@]}"; do
+        if (( AUR_PACKAGE_SELECTED[i] )); then
+            (( aur_count++ ))
+            aur_list+="${AUR_PACKAGE_LIST[$i]} "
+        fi
+    done
+    local aur_str="(none)"
+    (( aur_count > 0 )) && aur_str="${aur_count} selected"
 
     run_dialog \
         --title " Configuration Review " \
@@ -1267,6 +1355,9 @@ apply_preferred() {
     ENABLE_TPM=true
     ENABLE_HYPRLAND=true
     ENABLE_GNOME=true
+    ENABLE_KDE=false
+    ENABLE_CINNAMON=false
+    ENABLE_XFCE=false
     ENABLE_II=true
     ENABLE_II_FEATURES=true
     ENABLE_OMARCHY=false
