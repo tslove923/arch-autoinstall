@@ -2109,11 +2109,11 @@ AUTOEOF
 download_iso() {
     mkdir -p "$ISO_CACHE"
 
-    step "Downloading Arch ISO from OSUOSL" >&2
-    info "Mirror: $ISO_MIRROR" >&2
-    info "ISO provided by OSUOSL — https://osuosl.org/donate" >&2
-    info "Go Beavs! 🦫" >&2
-    echo "" >&2
+    step "Downloading Arch ISO from OSUOSL"
+    info "Mirror: $ISO_MIRROR"
+    info "ISO provided by OSUOSL — https://osuosl.org/donate"
+    info "Go Beavs! 🦫"
+    echo ""
 
     # Detect the latest ISO filename
     ISO_FILENAME="$(curl -sL "$ISO_MIRROR" | grep -oP 'archlinux-\d{4}\.\d{2}\.\d{2}-x86_64\.iso' | head -1)"
@@ -2121,35 +2121,34 @@ download_iso() {
         err "Could not detect ISO filename from OSUOSL mirror"
         exit 1
     fi
-    info "Latest ISO: $ISO_FILENAME" >&2
+    info "Latest ISO: $ISO_FILENAME"
 
-    local iso_path="$ISO_CACHE/$ISO_FILENAME"
-    if [[ -f "$iso_path" ]]; then
-        log "ISO already cached: $iso_path" >&2
+    # Set global ISO_PATH (no stdout capture needed)
+    ISO_PATH="$ISO_CACHE/$ISO_FILENAME"
+    if [[ -f "$ISO_PATH" ]]; then
+        log "ISO already cached: $ISO_PATH"
     else
-        info "Downloading $ISO_FILENAME..." >&2
-        curl -L --progress-bar -o "$iso_path" "${ISO_MIRROR}${ISO_FILENAME}"
-        log "Downloaded: $iso_path" >&2
+        info "Downloading $ISO_FILENAME..."
+        curl -L --progress-bar -o "$ISO_PATH" "${ISO_MIRROR}${ISO_FILENAME}"
+        log "Downloaded: $ISO_PATH"
     fi
 
     # Verify checksum
     local sha_file="$ISO_CACHE/sha256sums.txt"
     curl -sL -o "$sha_file" "${ISO_MIRROR}sha256sums.txt"
     if grep -q "$ISO_FILENAME" "$sha_file"; then
-        cd "$ISO_CACHE"
-        if sha256sum -c <(grep "$ISO_FILENAME" "$sha_file") >&2 2>&1; then
-            log "SHA256 checksum verified" >&2
+        pushd "$ISO_CACHE" > /dev/null
+        if sha256sum -c <(grep "$ISO_FILENAME" "$sha_file"); then
+            log "SHA256 checksum verified"
         else
             err "Checksum mismatch! Re-download the ISO."
-            rm -f "$iso_path"
+            rm -f "$ISO_PATH"
             exit 1
         fi
-        cd "$SCRIPT_DIR"
+        popd > /dev/null
     else
-        warn "Could not verify checksum (file not in sha256sums.txt)" >&2
+        warn "Could not verify checksum (file not in sha256sums.txt)"
     fi
-
-    echo "$iso_path"
 }
 
 # ─── Customize ISO ───────────────────────────────────────────────────────────
@@ -2315,7 +2314,7 @@ if $SKIP_DOWNLOAD; then
     fi
     log "Using cached ISO: $ISO_PATH"
 else
-    ISO_PATH="$(download_iso)"
+    download_iso
 fi
 
 # Set output path
