@@ -2046,8 +2046,12 @@ echo -e "${CYAN}[i]${RST} Config: $RESOLVED_CONFIG/user_configuration.json"
 echo ""
 
 # Run archinstall
+local creds_flag=""
+if [[ -f "$RESOLVED_CONFIG/user_credentials.json" ]]; then
+    creds_flag="--creds $RESOLVED_CONFIG/user_credentials.json"
+fi
 archinstall --config "$RESOLVED_CONFIG/user_configuration.json" \
-    ${RESOLVED_CONFIG}/user_credentials.json && \
+    $creds_flag && \
     echo "" || true
 
 # Copy post-install scripts to the new system
@@ -2170,6 +2174,22 @@ customize_iso() {
     sudo mount -o loop,ro "$source_iso" "$work/iso_mount"
     cp -a "$work/iso_mount/"* "$work/new_iso/"
     sudo umount "$work/iso_mount"
+    chmod -R u+w "$work/new_iso"
+
+    # Extract hidden EFI boot image from original ISO (El Torito entry)
+    mkdir -p "$work/new_iso/EFI/archiso"
+    local efi_lba efi_blocks
+    efi_lba=$(xorriso -indev "$source_iso" -report_el_torito plain 2>&1 \
+        | awk '/^El Torito boot img :.*UEFI/{print $NF}')
+    efi_blocks=$(xorriso -indev "$source_iso" -report_el_torito plain 2>&1 \
+        | awk '/^El Torito img blks :.*2/{print $NF}')
+    if [[ -n "$efi_lba" && -n "$efi_blocks" ]]; then
+        dd if="$source_iso" bs=2048 skip="$efi_lba" count="$efi_blocks" \
+            of="$work/new_iso/EFI/archiso/efiboot.img" status=none
+    else
+        err "Could not locate EFI boot image in source ISO"
+        exit 1
+    fi
 
     # Find and extract the squashfs
     local squashfs_path="$work/new_iso/arch/x86_64/airootfs.sfs"
@@ -2238,28 +2258,43 @@ HOOKEOF
     sudo rm -f "$squashfs_path"
     sudo mksquashfs "$work/squashfs_extract" "$squashfs_path" -comp zstd -Xcompression-level 15
 
-    # Regenerate checksum
+    # Regenerate checksums (archiso initramfs checks sha512 first, then sha256)
     local sfs_size
     sfs_size="$(stat -c %s "$squashfs_path")"
     sudo sha256sum "$squashfs_path" | awk '{print $1}' | sudo tee "$work/new_iso/arch/x86_64/airootfs.sha256" > /dev/null
+    sudo sha512sum "$squashfs_path" | awk '{print $1 "  airootfs.sfs"}' | sudo tee "$work/new_iso/arch/x86_64/airootfs.sha512" > /dev/null
 
     # Build new ISO
     info "Building custom ISO..."
     mkdir -p "$OUTPUT_DIR"
 
+    # Preserve the original volume label so boot configs (grubenv, syslinux,
+    # systemd-boot) still find the rootfs via archisosearchuuid
+    local orig_volid
+    orig_volid="$(grep -oP 'ARCHI[A-Z_]*=\K[A-Z0-9_]+' "$work/new_iso/boot/grub/grubenv" 2>/dev/null || true)"
+    [[ -z "$orig_volid" ]] && orig_volid="ARCH_AUTOINSTALL"
+
     xorriso -as mkisofs \
         -iso-level 3 \
         -full-iso9660-filenames \
-        -volid "ARCH_AUTOINSTALL" \
-        -eltorito-boot syslinux/isolinux.bin \
-        -eltorito-catalog syslinux/boot.cat \
+        -joliet \
+        -joliet-long \
+        -rational-rock \
+        -volid "$orig_volid" \
+        -eltorito-boot boot/syslinux/isolinux.bin \
+        -eltorito-catalog boot/syslinux/boot.cat \
         -no-emul-boot -boot-load-size 4 -boot-info-table \
-        -isohybrid-mbr "$work/new_iso/syslinux/isohdpfx.bin" \
+        -isohybrid-mbr "$work/new_iso/boot/syslinux/isohdpfx.bin" \
+        --mbr-force-bootable \
+        -partition_offset 16 \
         -eltorito-alt-boot \
-        -e EFI/archiso/efiboot.img \
-        -no-emul-boot -isohybrid-gpt-basdat \
+        -e '--interval:appended_partition_2_start_0s_size_0d:all::' \
+        -no-emul-boot \
+        -isohybrid-gpt-basdat \
+        -append_partition 2 C12A7328-F81F-11D2-BA4B-00A0C93EC93B "$work/new_iso/EFI/archiso/efiboot.img" \
+        -no-pad \
         -output "$output_iso" \
-        "$work/new_iso" 2>/dev/null
+        "$work/new_iso"
 
     log "Custom ISO created: $output_iso"
 
@@ -2270,6 +2305,12 @@ HOOKEOF
 # ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
+
+if [[ $EUID -eq 0 ]]; then
+    echo -e "${RED}${BOLD}Error:${RST} Do not run this script as root or with sudo."
+    echo -e "The script will prompt for sudo when needed."
+    exit 1
+fi
 
 check_deps
 setup_dialog_colors
