@@ -2137,7 +2137,7 @@ download_iso() {
     curl -sL -o "$sha_file" "${ISO_MIRROR}sha256sums.txt"
     if grep -q "$ISO_FILENAME" "$sha_file"; then
         cd "$ISO_CACHE"
-        if sha256sum -c <(grep "$ISO_FILENAME" "$sha_file") 2>/dev/null; then
+        if sha256sum -c <(grep "$ISO_FILENAME" "$sha_file") >&2 2>&1; then
             log "SHA256 checksum verified" >&2
         else
             err "Checksum mismatch! Re-download the ISO."
