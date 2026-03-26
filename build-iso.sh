@@ -1798,7 +1798,7 @@ if [[ "$ENABLE_TPM" == "true" ]]; then
                 warn "║  to complete TPM enrollment.                        ║"
                 warn "╚══════════════════════════════════════════════════════╝"
                 echo ""
-                read -rp "Reboot now to enable Secure Boot? [y/N] " -n1; echo
+                read -rp "Reboot now to enable Secure Boot? [y/N] "
                 if [[ ${REPLY,,} == y ]]; then
                     systemctl reboot
                     exit 0
@@ -2011,7 +2011,7 @@ if [[ "$AUTO_DISK" == "true" ]]; then
         echo ""
         echo -e "${YELLOW}[!] WARNING: ALL DATA on $TARGET_DISK will be erased!${RST}"
         echo ""
-        read -rp "Continue with $TARGET_DISK? [y/N] " -n1; echo
+        read -rp "Continue with $TARGET_DISK? [y/N] "
         if [[ ${REPLY,,} != y ]]; then
             AUTO_DISK=false
         fi
@@ -2098,7 +2098,7 @@ echo ""
 echo -e "${BOLD}ISO provided by OSUOSL — osuosl.org/donate${RST}"
 echo -e "${BOLD}Go Beavs! 🦫${RST}"
 echo ""
-read -rp "Reboot now? [y/N] " -n1; echo
+read -rp "Reboot now? [y/N] "
 [[ ${REPLY,,} == y ]] && systemctl reboot
 AUTOEOF
 
