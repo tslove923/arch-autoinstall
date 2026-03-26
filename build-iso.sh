@@ -2274,6 +2274,16 @@ HOOKEOF
     orig_volid="$(grep -oP 'ARCHI[A-Z_]*=\K[A-Z0-9_]+' "$work/new_iso/boot/grub/grubenv" 2>/dev/null || true)"
     [[ -z "$orig_volid" ]] && orig_volid="ARCH_AUTOINSTALL"
 
+    # Preserve the original ISO creation timestamp — archiso uses this as
+    # the "archisosearchuuid" (formatted YYYY-MM-DD-HH-mm-ss-cc) to locate
+    # the boot device. If xorriso assigns a new timestamp, the UUID changes
+    # and boot fails with "Device not found".
+    local orig_timestamp
+    orig_timestamp="$(xorriso -indev "$ISO_PATH" -pvd_info 2>&1 | sed -n 's/^Creation Time: *//p')"
+    if [[ -z "$orig_timestamp" ]]; then
+        warn "Could not extract original ISO timestamp — boot UUID may mismatch"
+    fi
+
     xorriso -as mkisofs \
         -iso-level 3 \
         -full-iso9660-filenames \
@@ -2281,6 +2291,7 @@ HOOKEOF
         -joliet-long \
         -rational-rock \
         -volid "$orig_volid" \
+        ${orig_timestamp:+--modification-date="$orig_timestamp"} \
         -eltorito-boot boot/syslinux/isolinux.bin \
         -eltorito-catalog boot/syslinux/boot.cat \
         -no-emul-boot -boot-load-size 4 -boot-info-table \
