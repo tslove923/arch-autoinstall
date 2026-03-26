@@ -2046,7 +2046,7 @@ echo -e "${CYAN}[i]${RST} Config: $RESOLVED_CONFIG/user_configuration.json"
 echo ""
 
 # Run archinstall
-local creds_flag=""
+creds_flag=""
 if [[ -f "$RESOLVED_CONFIG/user_credentials.json" ]]; then
     creds_flag="--creds $RESOLVED_CONFIG/user_credentials.json"
 fi
