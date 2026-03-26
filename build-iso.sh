@@ -2234,21 +2234,21 @@ customize_iso() {
     # Add auto-start hook to run on boot
     sudo mkdir -p "$work/squashfs_extract/etc/profile.d"
     sudo tee "$work/squashfs_extract/etc/profile.d/99-autoinstall.sh" > /dev/null << 'HOOKEOF'
-#!/bin/bash
 # Auto-launch installer on first login — Go Beavs! 🦫
-if [[ -f /root/arch-autoinstall/autorun.sh && ! -f /tmp/.autoinstall-started ]]; then
+# Sourced by zsh (archiso default), so avoid bashisms here.
+if [ -f /root/arch-autoinstall/autorun.sh ] && [ ! -f /tmp/.autoinstall-started ]; then
     touch /tmp/.autoinstall-started
-    echo ""
-    echo -e "\033[48;2;204;60;9m\033[38;2;255;255;255m\033[1m                                              \033[0m"
-    echo -e "\033[48;2;204;60;9m\033[38;2;255;255;255m\033[1m   Arch Autoinstaller — OSUOSL  Go Beavs! 🦫  \033[0m"
-    echo -e "\033[48;2;204;60;9m\033[38;2;255;255;255m\033[1m                                              \033[0m"
-    echo ""
-    read -rp "Start automated installation? [Y/n] " -n1; echo
-    if [[ ${REPLY,,} != n ]]; then
-        bash /root/arch-autoinstall/autorun.sh
-    else
-        echo "Skipped. Run manually: bash /root/arch-autoinstall/autorun.sh"
-    fi
+    printf '\n'
+    printf '\033[48;2;204;60;9m\033[38;2;255;255;255m\033[1m                                              \033[0m\n'
+    printf '\033[48;2;204;60;9m\033[38;2;255;255;255m\033[1m   Arch Autoinstaller — OSUOSL  Go Beavs! 🦫  \033[0m\n'
+    printf '\033[48;2;204;60;9m\033[38;2;255;255;255m\033[1m                                              \033[0m\n'
+    printf '\n'
+    printf 'Start automated installation? [Y/n] '
+    read -r REPLY
+    case "$REPLY" in
+        [nN]) echo "Skipped. Run manually: bash /root/arch-autoinstall/autorun.sh" ;;
+        *)    bash /root/arch-autoinstall/autorun.sh ;;
+    esac
 fi
 HOOKEOF
     sudo chmod +x "$work/squashfs_extract/etc/profile.d/99-autoinstall.sh"
