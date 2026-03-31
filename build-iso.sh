@@ -52,6 +52,7 @@ ENABLE_XFCE=false
 ENABLE_II=true           # illogical-impulse
 ENABLE_II_FEATURES=true  # custom feature branches
 AUTO_DISK=true
+DUAL_BOOT=false          # dual-boot layout: ESP /efi + XBOOTLDR /boot + root
 TARGET_DISK=""
 HOSTNAME_CFG="archlinux"
 USERNAME_CFG=""
@@ -229,6 +230,7 @@ config_to_json() {
     "enable_ii_features": $ENABLE_II_FEATURES,
     "ii_feature_selected": $ii_sel_json,
     "auto_disk": $AUTO_DISK,
+    "dual_boot": $DUAL_BOOT,
     "hostname": "$HOSTNAME_CFG",
     "username": "$USERNAME_CFG",
     "timezone": "$TIMEZONE_CFG",
@@ -293,6 +295,7 @@ load_config_json() {
     [[ -n "$v" ]] && IDLE_TIMEOUT_SEC=$v
     v="$(_json_bool enable_hibernate_guard)"; [[ -n "$v" ]] && ENABLE_HIBERNATE_GUARD=$v
     v="$(_json_bool auto_disk)";           [[ -n "$v" ]] && AUTO_DISK=$v
+    v="$(_json_bool dual_boot)";            [[ -n "$v" ]] && DUAL_BOOT=$v
     v="$(_json_str hostname)";             [[ -n "$v" ]] && HOSTNAME_CFG="$v"
     v="$(_json_str username)";             [[ -n "$v" ]] && USERNAME_CFG="$v"
     v="$(_json_str timezone)";             [[ -n "$v" ]] && TIMEZONE_CFG="$v"
@@ -562,7 +565,7 @@ show_main_menu() {
         "1" "Security: LUKS / Hibernate / TPM  [$(security_summary)]" \
         "2" "Desktop: environments & rices  [$(desktop_summary)]" \
         "3" "illogical-impulse features  [$ii_summary]" \
-        "4" "Disk: Target disk selection" \
+        "4" "Disk: Target disk & layout  [$($DUAL_BOOT && echo dual-boot || echo standard)]" \
         "5" "System: Hostname, user, locale, timezone" \
         "6" "Graphics: GPU driver selection" \
         "7" "Passwords: User & LUKS encryption  [$(password_summary)]" \
@@ -776,6 +779,22 @@ configure_disk() {
     case "$result" in
         1) AUTO_DISK=true ;;
         2) AUTO_DISK=false ;;
+    esac
+
+    # Partition layout toggle
+    result="$(run_dialog \
+        --title " Partition Layout " \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
+        --radiolist "\nSelect partition layout:\n\n  Standard:   1 GiB /boot (ESP) + root\n  Dual-boot:  512 MiB /efi (ESP) + 1 GiB /boot (XBOOTLDR) + root\n              Keeps Windows EFI partition separate from Linux kernels.\n" \
+        16 72 2 \
+        1 "Standard (single boot)"  "$(! $DUAL_BOOT && echo on || echo off)" \
+        2 "Dual-boot (ESP + XBOOTLDR)" "$($DUAL_BOOT && echo on || echo off)" \
+        3>&1 1>&2 2>&3)" || return 0
+
+    result="${result//\"/}"
+    case "$result" in
+        1) DUAL_BOOT=false ;;
+        2) DUAL_BOOT=true ;;
     esac
 }
 
@@ -1294,6 +1313,7 @@ show_review() {
     local hib_str="Disabled";  $ENABLE_HIBERNATE && hib_str="Enabled"
     local tpm_str="Disabled";  $ENABLE_TPM && tpm_str="Enabled"
     local disk_str="Automatic (largest)"; $AUTO_DISK || disk_str="Interactive"
+    local layout_str="Standard (2-part)"; $DUAL_BOOT && layout_str="Dual-boot (3-part: ESP+XBOOTLDR)"
     local de_list=""
     $ENABLE_HYPRLAND && de_list+="Hyprland "
     $ENABLE_GNOME && de_list+="GNOME "
@@ -1372,6 +1392,7 @@ show_review() {
 ║    Timezone:    $TIMEZONE_CFG
 ║    GPU drivers: ${GFX_DRIVERS[*]}
 ║    Disk mode:   $disk_str
+║    Layout:      $layout_str
 ║                                                  ║
 ║  Passwords                                       ║
 ║    User password:  $pw_user
@@ -1538,6 +1559,83 @@ generate_archinstall_config() {
     btrfs_subvols+='
             ]'
 
+    # Build partition layout based on DUAL_BOOT setting
+    local partitions_json
+    if $DUAL_BOOT; then
+        # 3-partition: ESP 512M /efi + XBOOTLDR 1G /boot + root btrfs
+        partitions_json='[
+                    {
+                        "btrfs": [],
+                        "dev_path": null,
+                        "flags": ["esp"],
+                        "fs_type": "fat32",
+                        "mount_options": [],
+                        "mountpoint": "/efi",
+                        "obj_id": "efi-part-0001",
+                        "size": {"sector_size": {"unit": "B", "value": 512}, "unit": "MiB", "value": 512},
+                        "start": {"sector_size": {"unit": "B", "value": 512}, "unit": "MiB", "value": 1},
+                        "status": "create",
+                        "type": "primary"
+                    },
+                    {
+                        "btrfs": [],
+                        "dev_path": null,
+                        "flags": ["boot", "bls_boot"],
+                        "fs_type": "fat32",
+                        "mount_options": [],
+                        "mountpoint": "/boot",
+                        "obj_id": "boot-part-0002",
+                        "size": {"sector_size": {"unit": "B", "value": 512}, "unit": "GiB", "value": 1},
+                        "start": {"sector_size": {"unit": "B", "value": 512}, "unit": "MiB", "value": 513},
+                        "status": "create",
+                        "type": "primary"
+                    },
+                    {
+                        "btrfs": '"$btrfs_subvols"',
+                        "dev_path": null,
+                        "flags": [],
+                        "fs_type": "btrfs",
+                        "mount_options": ["compress=zstd"],
+                        "mountpoint": null,
+                        "obj_id": "root-part-0003",
+                        "size": {"sector_size": {"unit": "B", "value": 512}, "unit": "GiB", "value": __ROOT_PART_SIZE_GIB__},
+                        "start": {"sector_size": {"unit": "B", "value": 512}, "unit": "MiB", "value": 1537},
+                        "status": "create",
+                        "type": "primary"
+                    }
+                ]'
+    else
+        # 2-partition: boot 1G /boot (ESP) + root btrfs
+        partitions_json='[
+                    {
+                        "btrfs": [],
+                        "dev_path": null,
+                        "flags": ["boot", "esp"],
+                        "fs_type": "fat32",
+                        "mount_options": [],
+                        "mountpoint": "/boot",
+                        "obj_id": "efi-part-0001",
+                        "size": {"sector_size": {"unit": "B", "value": 512}, "unit": "GiB", "value": 1},
+                        "start": {"sector_size": {"unit": "B", "value": 512}, "unit": "MiB", "value": 1},
+                        "status": "create",
+                        "type": "primary"
+                    },
+                    {
+                        "btrfs": '"$btrfs_subvols"',
+                        "dev_path": null,
+                        "flags": [],
+                        "fs_type": "btrfs",
+                        "mount_options": ["compress=zstd"],
+                        "mountpoint": null,
+                        "obj_id": "root-part-0002",
+                        "size": {"sector_size": {"unit": "B", "value": 512}, "unit": "GiB", "value": __ROOT_PART_SIZE_GIB__},
+                        "start": {"sector_size": {"unit": "B", "value": 512}, "unit": "MiB", "value": 1025},
+                        "status": "create",
+                        "type": "primary"
+                    }
+                ]'
+    fi
+
     # Build the user_configuration.json
     # NOTE: disk_config uses "default_layout" — archinstall will auto-detect
     # the target disk. The __DISK_DEVICE__ placeholder is replaced at install time.
@@ -1555,34 +1653,7 @@ generate_archinstall_config() {
         "device_modifications": [
             {
                 "device": "__DISK_DEVICE__",
-                "partitions": [
-                    {
-                        "btrfs": [],
-                        "dev_path": null,
-                        "flags": ["boot", "esp"],
-                        "fs_type": "fat32",
-                        "mount_options": [],
-                        "mountpoint": "/boot",
-                        "obj_id": "efi-part-0001",
-                        "size": {"sector_size": {"unit": "B", "value": 512}, "unit": "GiB", "value": 1},
-                        "start": {"sector_size": {"unit": "B", "value": 512}, "unit": "MiB", "value": 1},
-                        "status": "create",
-                        "type": "primary"
-                    },
-                    {
-                        "btrfs": $btrfs_subvols,
-                        "dev_path": null,
-                        "flags": [],
-                        "fs_type": "btrfs",
-                        "mount_options": ["compress=zstd"],
-                        "mountpoint": null,
-                        "obj_id": "root-part-0002",
-                        "size": {"sector_size": {"unit": "B", "value": 512}, "unit": "GiB", "value": __ROOT_PART_SIZE_GIB__},
-                        "start": {"sector_size": {"unit": "B", "value": 512}, "unit": "MiB", "value": 1025},
-                        "status": "create",
-                        "type": "primary"
-                    }
-                ],
+                "partitions": $partitions_json,
                 "wipe": true
             }
         ]
@@ -1663,7 +1734,8 @@ HIBERNATE_DELAY="__HIBERNATE_DELAY__"
 LID_ACTION="__LID_ACTION__"
 IDLE_ACTION="__IDLE_ACTION__"
 IDLE_TIMEOUT_SEC="__IDLE_TIMEOUT_SEC__"
-ENABLE_HIBERNATE_GUARD="__ENABLE_HIBERNATE_GUARD__"  Go Beavs! 🦫
+ENABLE_HIBERNATE_GUARD="__ENABLE_HIBERNATE_GUARD__"
+DUAL_BOOT="__DUAL_BOOT__"
 ###############################################################################
 set -euo pipefail
 
@@ -1753,6 +1825,22 @@ echo -e "${BOLD}${CYAN}║      ISO provided by OSUOSL — Go Beavs! 🦫       
 echo -e "${BOLD}${CYAN}╚══════════════════════════════════════════════════════╝${RST}"
 echo ""
 
+# ── UKI Setup (dual-boot XBOOTLDR) ──────────────────────
+if [[ "$DUAL_BOOT" == "true" ]]; then
+    step "Unified Kernel Image Setup"
+    if [[ ! -d /boot/EFI/Linux ]]; then
+        info "Creating /boot/EFI/Linux/ on XBOOTLDR partition"
+        sudo mkdir -p /boot/EFI/Linux
+    fi
+    if [[ ! -f /boot/EFI/Linux/arch-linux.efi ]]; then
+        info "Regenerating UKIs (archinstall may have failed on first pass)"
+        sudo mkinitcpio -P
+        log "UKIs regenerated in /boot/EFI/Linux/"
+    else
+        log "UKIs already present in /boot/EFI/Linux/"
+    fi
+fi
+
 # ── Hibernate ────────────────────────────────────────────
 if [[ "$ENABLE_HIBERNATE" == "true" ]]; then
     step "Hibernate Setup"
@@ -1840,6 +1928,7 @@ fi
     sed -i "s|__IDLE_ACTION__|$IDLE_ACTION|g" "$target"
     sed -i "s|__IDLE_TIMEOUT_SEC__|$IDLE_TIMEOUT_SEC|g" "$target"
     sed -i "s|__ENABLE_HIBERNATE_GUARD__|$ENABLE_HIBERNATE_GUARD|g" "$target"
+    sed -i "s|__DUAL_BOOT__|$DUAL_BOOT|g" "$target"
 
 # ── illogical-impulse ────────────────────────────────────
 if [[ "$ENABLE_II" == "true" ]]; then
@@ -1955,6 +2044,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_DIR="${SCRIPT_DIR}/config"
 AUTO_DISK="__AUTO_DISK__"
+DUAL_BOOT="__DUAL_BOOT__"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; RST='\033[0m'
@@ -2036,9 +2126,17 @@ cp -r "$CONFIG_DIR" "$RESOLVED_CONFIG" 2>/dev/null || cp -r "${CONFIG_DIR}/"* "$
 mkdir -p "$RESOLVED_CONFIG"
 sed -i "s|__DISK_DEVICE__|${TARGET_DISK}|g" "$RESOLVED_CONFIG/user_configuration.json"
 
-# Compute root partition size: total disk minus 1 GiB boot partition, rounded down
+# Compute root partition size based on layout
 DISK_BYTES=$(lsblk -bndo SIZE "$TARGET_DISK" 2>/dev/null | head -1)
-ROOT_SIZE_GIB=$(( (DISK_BYTES / 1073741824) - 1 ))
+if [[ "$DUAL_BOOT" == "true" ]]; then
+    # ESP 512M + XBOOTLDR 1G = ~2 GiB overhead
+    ROOT_SIZE_GIB=$(( (DISK_BYTES / 1073741824) - 2 ))
+    ROOT_UUID="root-part-0003"
+else
+    # Single 1G boot partition
+    ROOT_SIZE_GIB=$(( (DISK_BYTES / 1073741824) - 1 ))
+    ROOT_UUID="root-part-0002"
+fi
 if (( ROOT_SIZE_GIB < 1 )); then
     echo -e "${RED}[✗]${RST} Disk too small: $(( DISK_BYTES / 1073741824 )) GiB"
     exit 1
@@ -2047,7 +2145,6 @@ echo -e "${GREEN}[✓]${RST} Root partition size: ${ROOT_SIZE_GIB} GiB"
 sed -i "s|__ROOT_PART_SIZE_GIB__|${ROOT_SIZE_GIB}|g" "$RESOLVED_CONFIG/user_configuration.json"
 
 # Also fix the partition UUID placeholder for LUKS
-ROOT_UUID="root-part-0002"
 sed -i "s|__ROOT_PART_UUID__|${ROOT_UUID}|g" "$RESOLVED_CONFIG/user_configuration.json"
 
 echo ""
@@ -2114,6 +2211,7 @@ AUTOEOF
 
     chmod +x "$target"
     sed -i "s|__AUTO_DISK__|$AUTO_DISK|g" "$target"
+    sed -i "s|__DUAL_BOOT__|$DUAL_BOOT|g" "$target"
 
     log "Generated autorun script: $target"
 }

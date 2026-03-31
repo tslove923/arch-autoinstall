@@ -39,9 +39,16 @@ echo "[3/6] Signing all discoverable boot files..."
 
 sign_if_exists() { [[ -e "$1" ]] && sbctl sign -s "$1" && echo "  ✓ $1"; }
 
+# Detect ESP location: /efi for dual-boot (XBOOTLDR), /boot for standard
+if [[ -d /efi/EFI ]]; then
+    ESP="/efi"
+else
+    ESP="/boot"
+fi
+
 # systemd-boot EFI binaries
-sign_if_exists /boot/EFI/BOOT/BOOTX64.EFI        || true
-sign_if_exists /boot/EFI/systemd/systemd-bootx64.efi || true
+sign_if_exists "$ESP/EFI/BOOT/BOOTX64.EFI"        || true
+sign_if_exists "$ESP/EFI/systemd/systemd-bootx64.efi" || true
 
 # Bare vmlinuz (non-UKI installs)
 for k in /boot/vmlinuz-*; do
@@ -92,6 +99,8 @@ Type = Path
 Target = boot/vmlinuz-*
 Target = usr/lib/modules/*/vmlinuz
 Target = boot/EFI/Linux/*.efi
+Target = efi/EFI/BOOT/*
+Target = efi/EFI/systemd/*
 
 [Action]
 Description = Re-signing boot files with sbctl
