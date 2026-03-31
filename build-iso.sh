@@ -1330,7 +1330,7 @@ show_review() {
     local aur_count=0 aur_list=""
     for i in "${!AUR_PACKAGE_SELECTED[@]}"; do
         if (( AUR_PACKAGE_SELECTED[i] )); then
-            (( aur_count++ ))
+            (( aur_count++ )) || true
             aur_list+="${AUR_PACKAGE_LIST[$i]} "
         fi
     done
