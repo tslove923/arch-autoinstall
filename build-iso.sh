@@ -1577,8 +1577,8 @@ generate_archinstall_config() {
                         "mount_options": ["compress=zstd"],
                         "mountpoint": null,
                         "obj_id": "root-part-0002",
-                        "size": {"sector_size": {"unit": "B", "value": 512}, "unit": "Percentage", "value": 100},
-                        "start": {"sector_size": {"unit": "B", "value": 512}, "unit": "B", "value": 1074790400},
+                        "size": {"sector_size": {"unit": "B", "value": 512}, "unit": "GiB", "value": __ROOT_PART_SIZE_GIB__},
+                        "start": {"sector_size": {"unit": "B", "value": 512}, "unit": "MiB", "value": 1025},
                         "status": "create",
                         "type": "primary"
                     }
@@ -2011,7 +2011,7 @@ if [[ "$AUTO_DISK" == "true" ]]; then
         echo ""
         echo -e "${YELLOW}[!] WARNING: ALL DATA on $TARGET_DISK will be erased!${RST}"
         echo ""
-        read -rp "Continue with $TARGET_DISK? [y/N] "
+;        read -rp "Continue with $TARGET_DISK? [y/N] "
         if [[ ${REPLY,,} != y ]]; then
             AUTO_DISK=false
         fi
@@ -2035,6 +2035,16 @@ RESOLVED_CONFIG="$(mktemp -d)/config"
 cp -r "$CONFIG_DIR" "$RESOLVED_CONFIG" 2>/dev/null || cp -r "${CONFIG_DIR}/"* "$RESOLVED_CONFIG/" 2>/dev/null
 mkdir -p "$RESOLVED_CONFIG"
 sed -i "s|__DISK_DEVICE__|${TARGET_DISK}|g" "$RESOLVED_CONFIG/user_configuration.json"
+
+# Compute root partition size: total disk minus 1 GiB boot partition, rounded down
+DISK_BYTES=$(lsblk -bndo SIZE "$TARGET_DISK" 2>/dev/null | head -1)
+ROOT_SIZE_GIB=$(( (DISK_BYTES / 1073741824) - 1 ))
+if (( ROOT_SIZE_GIB < 1 )); then
+    echo -e "${RED}[✗]${RST} Disk too small: $(( DISK_BYTES / 1073741824 )) GiB"
+    exit 1
+fi
+echo -e "${GREEN}[✓]${RST} Root partition size: ${ROOT_SIZE_GIB} GiB"
+sed -i "s|__ROOT_PART_SIZE_GIB__|${ROOT_SIZE_GIB}|g" "$RESOLVED_CONFIG/user_configuration.json"
 
 # Also fix the partition UUID placeholder for LUKS
 ROOT_UUID="root-part-0002"
