@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 ###############################################################################
 # setup-proxy.sh — Configure corporate proxy for Arch Linux live environment
-# Run before archinstall on networks that require a proxy.
+# Run before archinstall on networks that require a proxy (e.g. Intel)
 #
 # Usage: source setup-proxy.sh          (to export vars into current shell)
 #    or: bash setup-proxy.sh            (standalone — writes /etc/environment)
@@ -13,12 +13,11 @@
 #   - curl / wget
 #   - systemd-timesyncd
 ###############################################################################
-# Note: no set -euo pipefail here — this script is sourced by autorun.sh
-# which already has strict mode. Failures are handled explicitly.
+set -euo pipefail
 
-PROXY="${PROXY_URL:?PROXY_URL must be set}"
-SOCKS_PROXY="${SOCKS_PROXY_URL:-}"
-NO_PROXY_LIST="${NO_PROXY:-10.0.0.0/8,192.168.0.0/16,localhost,.local,127.0.0.0/8,172.16.0.0/12}"
+PROXY="${PROXY_URL:-http://proxy-dmz.intel.com:912}"
+SOCKS_PROXY="${SOCKS_PROXY_URL:-http://proxy-dmz.intel.com:1080}"
+NO_PROXY_LIST="intel.com,.intel.com,10.0.0.0/8,192.168.0.0/16,localhost,.local,127.0.0.0/8,172.16.0.0/12,134.134.0.0/16"
 
 log()  { echo -e "\033[0;32m[✓]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[!]\033[0m $*"; }
@@ -62,25 +61,23 @@ EOF
 chmod 0440 /etc/sudoers.d/proxy
 log "Sudo configured to preserve proxy"
 
-# ── 4. DNS — add custom nameservers ─────────────────────
-DNS_SERVERS="${PROXY_DNS:-}"
-if [[ -n "$DNS_SERVERS" ]]; then
-    if ! grep -q "${DNS_SERVERS%% *}" /etc/resolv.conf 2>/dev/null; then
-        cp /etc/resolv.conf /etc/resolv.conf.backup 2>/dev/null || true
-        for ns in $DNS_SERVERS; do
-            echo "nameserver $ns" >> /etc/resolv.conf
-        done
-        log "Custom DNS servers added"
-    else
-        log "Custom DNS already configured"
-    fi
+# ── 4. DNS — add Intel nameservers ──────────────────────
+if ! grep -q '10.248.2.1' /etc/resolv.conf 2>/dev/null; then
+    cp /etc/resolv.conf /etc/resolv.conf.backup 2>/dev/null || true
+    {
+        echo "nameserver 10.248.2.1"
+        echo "nameserver 10.239.27.228"
+    } >> /etc/resolv.conf
+    log "Intel DNS servers added"
+else
+    log "Intel DNS already configured"
 fi
 
 # ── 5. dirmngr (PGP key fetching via proxy) ─────────────
 mkdir -p /etc/pacman.d/gnupg
-cat > /etc/pacman.d/gnupg/dirmngr.conf << EOF
+cat > /etc/pacman.d/gnupg/dirmngr.conf << 'EOF'
 honor-http-proxy
-http-proxy $PROXY
+http-proxy proxy-us.intel.com:912
 EOF
 
 mkdir -p /etc/systemd/system/dirmngr@etc-pacman.d-gnupg.service.d
@@ -93,11 +90,10 @@ EOF
 pkill dirmngr 2>/dev/null || true
 log "dirmngr configured for proxy"
 
-# ── 6. NTP — proxy-aware time sync ───────────────────────
-NTP_SERVERS="${PROXY_NTP:-0.arch.pool.ntp.org 1.arch.pool.ntp.org}"
-cat > /etc/systemd/timesyncd.conf << EOF
+# ── 6. NTP — Intel corporate + fallback ─────────────────
+cat > /etc/systemd/timesyncd.conf << 'EOF'
 [Time]
-NTP=$NTP_SERVERS
+NTP=corp.intel.com 0.arch.pool.ntp.org 1.arch.pool.ntp.org
 FallbackNTP=2.arch.pool.ntp.org 3.arch.pool.ntp.org
 EOF
 
@@ -112,7 +108,7 @@ EOF
 systemctl daemon-reload
 systemctl restart systemd-timesyncd 2>/dev/null || true
 timedatectl set-ntp true 2>/dev/null || true
-log "NTP configured"
+log "NTP configured (corp.intel.com)"
 
 # ── 7. reflector proxy ──────────────────────────────────
 mkdir -p /etc/systemd/system/reflector.service.d
