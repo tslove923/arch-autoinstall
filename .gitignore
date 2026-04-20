@@ -4,3 +4,4 @@ out/
 *.iso
 configs/credentials.*
 configs/last-config.json
+vm/

@@ -52,7 +52,7 @@ ENABLE_XFCE=false
 ENABLE_II=true           # illogical-impulse
 ENABLE_II_FEATURES=true  # custom feature branches
 AUTO_DISK=true
-DUAL_BOOT=false          # dual-boot layout: ESP /efi + XBOOTLDR /boot + root
+DISK_LAYOUT="standard"   # standard | dual-clean | alongside
 TARGET_DISK=""
 HOSTNAME_CFG="archlinux"
 USERNAME_CFG=""
@@ -76,6 +76,10 @@ LID_ACTION="suspend-then-hibernate"    # suspend | hibernate | suspend-then-hibe
 IDLE_ACTION="suspend-then-hibernate"   # suspend | hibernate | suspend-then-hibernate | ignore
 IDLE_TIMEOUT_SEC=900             # seconds before idle action (15 min default)
 ENABLE_HIBERNATE_GUARD=true      # hibernate-guard disk-space watchdog
+
+# Networking
+ENABLE_PROXY=false               # corporate proxy (Intel)
+PROXY_URL="http://proxy-dmz.intel.com:912"
 
 # WiFi
 WIFI_SSID=""                     # pre-configure WiFi SSID
@@ -230,7 +234,7 @@ config_to_json() {
     "enable_ii_features": $ENABLE_II_FEATURES,
     "ii_feature_selected": $ii_sel_json,
     "auto_disk": $AUTO_DISK,
-    "dual_boot": $DUAL_BOOT,
+    "disk_layout": "$DISK_LAYOUT",
     "hostname": "$HOSTNAME_CFG",
     "username": "$USERNAME_CFG",
     "timezone": "$TIMEZONE_CFG",
@@ -244,6 +248,8 @@ config_to_json() {
     "idle_action": "$IDLE_ACTION",
     "idle_timeout_sec": $IDLE_TIMEOUT_SEC,
     "enable_hibernate_guard": $ENABLE_HIBERNATE_GUARD,
+    "enable_proxy": $ENABLE_PROXY,
+    "proxy_url": "$PROXY_URL",
     "enable_wifi": $ENABLE_WIFI,
     "wifi_ssid": "$WIFI_SSID",
     "offline_mode": $OFFLINE_MODE,
@@ -295,13 +301,15 @@ load_config_json() {
     [[ -n "$v" ]] && IDLE_TIMEOUT_SEC=$v
     v="$(_json_bool enable_hibernate_guard)"; [[ -n "$v" ]] && ENABLE_HIBERNATE_GUARD=$v
     v="$(_json_bool auto_disk)";           [[ -n "$v" ]] && AUTO_DISK=$v
-    v="$(_json_bool dual_boot)";            [[ -n "$v" ]] && DUAL_BOOT=$v
+    v="$(_json_str disk_layout)";           [[ -n "$v" ]] && DISK_LAYOUT="$v"
     v="$(_json_str hostname)";             [[ -n "$v" ]] && HOSTNAME_CFG="$v"
     v="$(_json_str username)";             [[ -n "$v" ]] && USERNAME_CFG="$v"
     v="$(_json_str timezone)";             [[ -n "$v" ]] && TIMEZONE_CFG="$v"
     v="$(_json_str locale)";               [[ -n "$v" ]] && LOCALE_CFG="$v"
     v="$(_json_str kb_layout)";            [[ -n "$v" ]] && KB_LAYOUT_CFG="$v"
     v="$(_json_str gfx_drivers)";          [[ -n "$v" ]] && IFS=' ' read -ra GFX_DRIVERS <<< "$v"
+    v="$(_json_bool enable_proxy)";        [[ -n "$v" ]] && ENABLE_PROXY=$v
+    v="$(_json_str proxy_url)";             [[ -n "$v" ]] && PROXY_URL="$v"
     v="$(_json_bool enable_wifi)";         [[ -n "$v" ]] && ENABLE_WIFI=$v
     v="$(_json_str wifi_ssid)";            [[ -n "$v" ]] && WIFI_SSID="$v"
     v="$(_json_bool offline_mode)";        [[ -n "$v" ]] && OFFLINE_MODE=$v
@@ -565,12 +573,13 @@ show_main_menu() {
         "1" "Security: LUKS / Hibernate / TPM  [$(security_summary)]" \
         "2" "Desktop: environments & rices  [$(desktop_summary)]" \
         "3" "illogical-impulse features  [$ii_summary]" \
-        "4" "Disk: Target disk & layout  [$($DUAL_BOOT && echo dual-boot || echo standard)]" \
+        "4" "Disk: Target disk & layout  [$DISK_LAYOUT]" \
         "5" "System: Hostname, user, locale, timezone" \
         "6" "Graphics: GPU driver selection" \
         "7" "Passwords: User & LUKS encryption  [$(password_summary)]" \
         "8" "Sleep & Power: suspend / hibernate / hybrid  [$(sleep_summary)]" \
         "9" "WiFi: pre-configure wireless  [$(wifi_summary)]" \
+        "X" "Proxy: corporate network (Intel)  [$($ENABLE_PROXY && echo ON || echo off)]" \
         "A" "Packages: yay, extra pacman & AUR  [$(packages_summary)]" \
         "O" "Offline installer  [$($OFFLINE_MODE && echo ON || echo off)]" \
         "S" "Save / Load config" \
@@ -781,20 +790,22 @@ configure_disk() {
         2) AUTO_DISK=false ;;
     esac
 
-    # Partition layout toggle
+    # Partition layout
     result="$(run_dialog \
         --title " Partition Layout " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
-        --radiolist "\nSelect partition layout:\n\n  Standard:   1 GiB /boot (ESP) + root\n  Dual-boot:  512 MiB /efi (ESP) + 1 GiB /boot (XBOOTLDR) + root\n              Keeps Windows EFI partition separate from Linux kernels.\n" \
-        16 72 2 \
-        1 "Standard (single boot)"  "$(! $DUAL_BOOT && echo on || echo off)" \
-        2 "Dual-boot (ESP + XBOOTLDR)" "$($DUAL_BOOT && echo on || echo off)" \
+        --radiolist "\nSelect partition layout:\n\n  Standard:    1 GiB /boot (ESP) + root  —  wipes disk\n  Dual-clean:  512 MiB /efi (ESP) + 1 GiB /boot (XBOOTLDR) + root  —  wipes disk\n  Alongside:   Reuse existing ESP, create XBOOTLDR + root in free space\n               For installing next to Windows  —  preserves existing partitions\n" \
+        19 78 3 \
+        1 "Standard (single boot)"              "$([[ "$DISK_LAYOUT" == "standard" ]]   && echo on || echo off)" \
+        2 "Dual-boot clean (wipe disk)"         "$([[ "$DISK_LAYOUT" == "dual-clean" ]] && echo on || echo off)" \
+        3 "Alongside Windows (use free space)"  "$([[ "$DISK_LAYOUT" == "alongside" ]]  && echo on || echo off)" \
         3>&1 1>&2 2>&3)" || return 0
 
     result="${result//\"/}"
     case "$result" in
-        1) DUAL_BOOT=false ;;
-        2) DUAL_BOOT=true ;;
+        1) DISK_LAYOUT="standard" ;;
+        2) DISK_LAYOUT="dual-clean" ;;
+        3) DISK_LAYOUT="alongside" ;;
     esac
 }
 
@@ -1151,6 +1162,34 @@ configure_wifi() {
     fi
 }
 
+# ─── Corporate Proxy ──────────────────────────────────────────────────────────
+
+configure_proxy() {
+    local result
+    result="$(run_dialog \
+        --title " Corporate Proxy " \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
+        --checklist "\nEnable corporate proxy for networks that require it\n(e.g. Intel). Configures proxy for pacman, curl, wget,\ndirmngr, reflector, and NTP.\n" \
+        14 68 1 \
+        1 "Enable corporate proxy" "$($ENABLE_PROXY && echo on || echo off)" \
+        3>&1 1>&2 2>&3)" || return
+
+    if [[ "$result" == *"1"* ]]; then
+        ENABLE_PROXY=true
+    else
+        ENABLE_PROXY=false
+        return
+    fi
+
+    # Prompt for proxy URL
+    result="$(run_dialog \
+        --title " Proxy URL " \
+        --backtitle "Arch Linux Autoinstaller Configuration" \
+        --inputbox "\nEnter the HTTP proxy URL:" 10 60 "$PROXY_URL" \
+        3>&1 1>&2 2>&3)" || return
+    [[ -n "$result" ]] && PROXY_URL="$result"
+}
+
 # ─── Offline Installer ────────────────────────────────────────────────────────
 
 configure_offline() {
@@ -1313,7 +1352,8 @@ show_review() {
     local hib_str="Disabled";  $ENABLE_HIBERNATE && hib_str="Enabled"
     local tpm_str="Disabled";  $ENABLE_TPM && tpm_str="Enabled"
     local disk_str="Automatic (largest)"; $AUTO_DISK || disk_str="Interactive"
-    local layout_str="Standard (2-part)"; $DUAL_BOOT && layout_str="Dual-boot (3-part: ESP+XBOOTLDR)"
+    local layout_str="$DISK_LAYOUT"
+    [[ "$DISK_LAYOUT" == "alongside" ]] && layout_str="Alongside Windows (reuse ESP)"
     local de_list=""
     $ENABLE_HYPRLAND && de_list+="Hyprland "
     $ENABLE_GNOME && de_list+="GNOME "
@@ -1339,6 +1379,10 @@ show_review() {
     # WiFi summary
     local wifi_str="Disabled"
     $ENABLE_WIFI && wifi_str="Enabled — ${WIFI_SSID:-<not set>}"
+
+    # Proxy summary
+    local proxy_str="Disabled"
+    $ENABLE_PROXY && proxy_str="Enabled — $PROXY_URL"
 
     # Offline summary
     local offline_str="Online (download packages)"
@@ -1377,6 +1421,7 @@ show_review() {
 ║    omarchy:           $omarchy_str
 ║                                                  ║
 ║  Networking                                      ║
+║    Proxy:    $proxy_str
 ║    WiFi:     $wifi_str
 ║    Install:  $offline_str
 ║                                                  ║
@@ -1476,6 +1521,7 @@ run_tui() {
             7) configure_passwords ;;
             8) configure_sleep ;;
             9) configure_wifi ;;
+            X) configure_proxy ;;
             A) configure_packages ;;
             O) configure_offline ;;
             S) configure_save_load ;;
@@ -1559,9 +1605,9 @@ generate_archinstall_config() {
     btrfs_subvols+='
             ]'
 
-    # Build partition layout based on DUAL_BOOT setting
+    # Build partition layout based on DISK_LAYOUT setting
     local partitions_json
-    if $DUAL_BOOT; then
+    if [[ "$DISK_LAYOUT" == "dual-clean" ]]; then
         # 3-partition: ESP 512M /efi + XBOOTLDR 1G /boot + root btrfs
         partitions_json='[
                     {
@@ -1735,7 +1781,9 @@ LID_ACTION="__LID_ACTION__"
 IDLE_ACTION="__IDLE_ACTION__"
 IDLE_TIMEOUT_SEC="__IDLE_TIMEOUT_SEC__"
 ENABLE_HIBERNATE_GUARD="__ENABLE_HIBERNATE_GUARD__"
-DUAL_BOOT="__DUAL_BOOT__"
+DISK_LAYOUT="__DISK_LAYOUT__"
+ENABLE_PROXY="__ENABLE_PROXY__"
+PROXY_URL="__PROXY_URL__"
 ###############################################################################
 set -euo pipefail
 
@@ -1825,8 +1873,20 @@ echo -e "${BOLD}${CYAN}║      ISO provided by OSUOSL — Go Beavs! 🦫       
 echo -e "${BOLD}${CYAN}╚══════════════════════════════════════════════════════╝${RST}"
 echo ""
 
+# ── Corporate Proxy (persist to installed system) ────────
+if [[ "$ENABLE_PROXY" == "true" ]]; then
+    step "Corporate Proxy Configuration"
+    if [[ -f "$SCRIPT_DIR/setup-proxy.sh" ]]; then
+        info "Applying proxy settings to installed system..."
+        export PROXY_URL="$PROXY_URL"
+        sudo -E bash "$SCRIPT_DIR/setup-proxy.sh"
+    else
+        warn "setup-proxy.sh not found — skipping proxy persistence"
+    fi
+fi
+
 # ── UKI Setup (dual-boot XBOOTLDR) ──────────────────────
-if [[ "$DUAL_BOOT" == "true" ]]; then
+if [[ "$DISK_LAYOUT" == "dual-clean" || "$DISK_LAYOUT" == "alongside" ]]; then
     step "Unified Kernel Image Setup"
     if [[ ! -d /boot/EFI/Linux ]]; then
         info "Creating /boot/EFI/Linux/ on XBOOTLDR partition"
@@ -1928,7 +1988,9 @@ fi
     sed -i "s|__IDLE_ACTION__|$IDLE_ACTION|g" "$target"
     sed -i "s|__IDLE_TIMEOUT_SEC__|$IDLE_TIMEOUT_SEC|g" "$target"
     sed -i "s|__ENABLE_HIBERNATE_GUARD__|$ENABLE_HIBERNATE_GUARD|g" "$target"
-    sed -i "s|__DUAL_BOOT__|$DUAL_BOOT|g" "$target"
+    sed -i "s|__DISK_LAYOUT__|$DISK_LAYOUT|g" "$target"
+    sed -i "s|__ENABLE_PROXY__|$ENABLE_PROXY|g" "$target"
+    sed -i "s|__PROXY_URL__|$PROXY_URL|g" "$target"
 
 # ── illogical-impulse ────────────────────────────────────
 if [[ "$ENABLE_II" == "true" ]]; then
@@ -2044,7 +2106,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_DIR="${SCRIPT_DIR}/config"
 AUTO_DISK="__AUTO_DISK__"
-DUAL_BOOT="__DUAL_BOOT__"
+DISK_LAYOUT="__DISK_LAYOUT__"
+ENABLE_LUKS="__ENABLE_LUKS__"
+ENABLE_PROXY="__ENABLE_PROXY__"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; RST='\033[0m'
@@ -2053,7 +2117,6 @@ BG_ORANGE='\033[48;2;204;60;9m'; FG_WHITE='\033[38;2;255;255;255m'
 echo ""
 echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}                                                        ${RST}"
 echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}    Arch Linux Zero-Touch Installer                      ${RST}"
-echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}    ISO provided by OSUOSL — osuosl.org/donate           ${RST}"
 echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}    ISO provided by OSUOSL — osuosl.org/donate           ${RST}"
 echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}                              Go Beavs! 🦫                ${RST}"
 echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}                                                        ${RST}"
@@ -2069,6 +2132,17 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
+# Corporate proxy setup
+if [[ "$ENABLE_PROXY" == "true" ]]; then
+    echo -e "${CYAN}[i]${RST} Configuring corporate proxy..."
+    if [[ -f "$SCRIPT_DIR/scripts/setup-proxy.sh" ]]; then
+        export PROXY_URL="__PROXY_URL__"
+        source "$SCRIPT_DIR/scripts/setup-proxy.sh"
+    else
+        echo -e "${RED}[✗]${RST} setup-proxy.sh not found — skipping proxy config"
+    fi
+fi
+
 # Detect or select target disk
 detect_disk() {
     # Find the largest non-USB, non-removable disk
@@ -2080,7 +2154,6 @@ detect_disk() {
         rm="$(echo "$line" | awk '{print $3}')"
         type="$(echo "$line" | awk '{print $4}')"
         [[ "$type" == "disk" && "$rm" == "0" ]] || continue
-        # Convert size to bytes for comparison
         local bytes
         bytes="$(lsblk -bno SIZE "/dev/$name" 2>/dev/null | head -1)"
         if (( bytes > best_size )); then
@@ -2091,78 +2164,289 @@ detect_disk() {
     echo "$best_disk"
 }
 
-if [[ "$AUTO_DISK" == "true" ]]; then
-    TARGET_DISK="$(detect_disk)"
-    if [[ -z "$TARGET_DISK" ]]; then
-        echo -e "${RED}[✗]${RST} No suitable disk found. Falling back to interactive."
-        AUTO_DISK=false
-    else
-        echo -e "${GREEN}[✓]${RST} Auto-selected disk: ${BOLD}$TARGET_DISK${RST} ($(lsblk -ndo SIZE "$TARGET_DISK"))"
+# Detect disk with Windows (returns "disk_path esp_partition" or fails)
+detect_windows_disk() {
+    local disk part tmpdir fstype
+    for disk in $(lsblk -ndo NAME,TYPE | awk '$2=="disk" {print "/dev/"$1}'); do
+        for part in $(lsblk -npo NAME,TYPE "$disk" | awk '$2=="part" {print $1}'); do
+            fstype="$(blkid -o value -s TYPE "$part" 2>/dev/null)" || true
+            [[ "$fstype" == "vfat" ]] || continue
+            tmpdir="$(mktemp -d)"
+            mount -r "$part" "$tmpdir" 2>/dev/null || { rmdir "$tmpdir"; continue; }
+            if [[ -d "$tmpdir/EFI/Microsoft" ]]; then
+                umount "$tmpdir"; rmdir "$tmpdir"
+                echo "$disk $part"
+                return 0
+            fi
+            umount "$tmpdir" 2>/dev/null || true; rmdir "$tmpdir"
+        done
+    done
+    return 1
+}
+
+# Find largest contiguous free space on disk (returns "start_mib size_mib")
+find_free_space() {
+    local disk="$1"
+    local best_start=0 best_size=0
+    while read -r start end size rest; do
+        # Only process "Free Space" lines from parted
+        [[ "$rest" == *"Free Space"* ]] || continue
+        local sz="${size%MiB}"; sz="${sz%.*}"
+        local st="${start%MiB}"; st="${st%.*}"
+        if (( sz > best_size )); then
+            best_size=$sz
+            best_start=$st
+        fi
+    done < <(parted -s "$disk" unit MiB print free 2>/dev/null)
+    echo "$best_start $best_size"
+}
+
+MOUNT_POINT="/mnt/archinstall"
+
+# ── Alongside Windows mode ───────────────────────────────
+if [[ "$DISK_LAYOUT" == "alongside" ]]; then
+    echo -e "${CYAN}[i]${RST} Alongside mode: detecting Windows installation..."
+
+    WIN_INFO="$(detect_windows_disk)" || {
+        echo -e "${RED}[✗]${RST} No Windows installation found. Cannot use alongside mode."
+        echo -e "${YELLOW}[!]${RST} Falling back to interactive disk selection."
+        DISK_LAYOUT="dual-clean"
+    }
+
+    if [[ "$DISK_LAYOUT" == "alongside" ]]; then
+        TARGET_DISK="$(echo "$WIN_INFO" | awk '{print $1}')"
+        ESP_PART="$(echo "$WIN_INFO" | awk '{print $2}')"
+        echo -e "${GREEN}[✓]${RST} Found Windows on ${BOLD}$TARGET_DISK${RST}"
+        echo -e "${GREEN}[✓]${RST} Existing ESP: ${BOLD}$ESP_PART${RST}"
         echo ""
-        echo -e "${YELLOW}[!] WARNING: ALL DATA on $TARGET_DISK will be erased!${RST}"
+
+        # Show current partition layout
+        echo -e "${CYAN}Current partition layout:${RST}"
+        lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINTS "$TARGET_DISK"
         echo ""
-;        read -rp "Continue with $TARGET_DISK? [y/N] "
+
+        # Find free space
+        read -r FREE_START FREE_SIZE <<< "$(find_free_space "$TARGET_DISK")"
+        if (( FREE_SIZE < 20480 )); then  # minimum 20 GiB
+            echo -e "${RED}[✗]${RST} Not enough free space: ${FREE_SIZE} MiB (need at least 20 GiB)"
+            echo -e "${YELLOW}[!]${RST} Shrink your Windows partition first, then try again."
+            exit 1
+        fi
+        echo -e "${GREEN}[✓]${RST} Free space: ${BOLD}$(( FREE_SIZE / 1024 )) GiB${RST} starting at ${FREE_START} MiB"
+        echo ""
+        echo -e "${YELLOW}[!] This will create new partitions in the free space.${RST}"
+        echo -e "${YELLOW}    Existing partitions (including Windows) will NOT be touched.${RST}"
+        echo ""
+        read -rp "Install Arch Linux alongside Windows? [y/N] "
         if [[ ${REPLY,,} != y ]]; then
+            echo "Aborted."
+            exit 0
+        fi
+
+        # ── Create partitions in free space ──
+        echo ""
+        echo -e "${CYAN}[i]${RST} Creating partitions in free space..."
+
+        # XBOOTLDR: 1 GiB for /boot (UKIs)
+        XBOOT_START=$FREE_START
+        XBOOT_END=$(( XBOOT_START + 1024 ))
+        # Root: rest of free space
+        ROOT_START=$XBOOT_END
+        ROOT_END=$(( FREE_START + FREE_SIZE ))
+
+        # Get next available partition numbers
+        LAST_PART="$(sgdisk -p "$TARGET_DISK" 2>/dev/null | awk '/^ *[0-9]/ {n=$1} END{print n+0}')"
+        XBOOT_NUM=$(( LAST_PART + 1 ))
+        ROOT_NUM=$(( LAST_PART + 2 ))
+
+        sgdisk \
+            -n "${XBOOT_NUM}:${XBOOT_START}M:${XBOOT_END}M" -t "${XBOOT_NUM}:ea00" \
+            -n "${ROOT_NUM}:${ROOT_START}M:${ROOT_END}M"     -t "${ROOT_NUM}:8304" \
+            "$TARGET_DISK"
+
+        partprobe "$TARGET_DISK"
+        sleep 2  # wait for udev
+
+        # Determine partition paths (handle nvme vs sd naming)
+        if [[ "$TARGET_DISK" == *nvme* || "$TARGET_DISK" == *mmcblk* ]]; then
+            XBOOT_PART="${TARGET_DISK}p${XBOOT_NUM}"
+            ROOT_PART="${TARGET_DISK}p${ROOT_NUM}"
+        else
+            XBOOT_PART="${TARGET_DISK}${XBOOT_NUM}"
+            ROOT_PART="${TARGET_DISK}${ROOT_NUM}"
+        fi
+
+        echo -e "${GREEN}[✓]${RST} Created XBOOTLDR: $XBOOT_PART (1 GiB)"
+        echo -e "${GREEN}[✓]${RST} Created root:     $ROOT_PART ($(( (ROOT_END - ROOT_START) / 1024 )) GiB)"
+
+        # ── Format partitions ──
+        echo -e "${CYAN}[i]${RST} Formatting partitions..."
+        mkfs.fat -F32 -n ARCHBOOT "$XBOOT_PART"
+
+        # LUKS encryption on root if enabled
+        if [[ "$ENABLE_LUKS" == "true" ]]; then
+            echo -e "${CYAN}[i]${RST} Setting up LUKS encryption on root partition..."
+            LUKS_PW=""
+            if [[ -f "$CONFIG_DIR/user_configuration.json" ]]; then
+                # Extract LUKS password from disk_encryption in user_configuration.json
+                LUKS_PW="$(python3 -c "
+import json, sys
+with open('$CONFIG_DIR/user_configuration.json') as f:
+    cfg = json.load(f)
+pw = cfg.get('disk_encryption', {}).get('!encryption-password', '')
+sys.stdout.write(pw)
+" 2>/dev/null || true)"
+            fi
+            if [[ -n "${LUKS_PW:-}" ]]; then
+                echo -n "$LUKS_PW" | cryptsetup luksFormat --type luks2 "$ROOT_PART" -d -
+                echo -n "$LUKS_PW" | cryptsetup open "$ROOT_PART" cryptroot -d -
+            else
+                cryptsetup luksFormat --type luks2 "$ROOT_PART"
+                cryptsetup open "$ROOT_PART" cryptroot
+            fi
+            ROOT_DEVICE="/dev/mapper/cryptroot"
+        else
+            ROOT_DEVICE="$ROOT_PART"
+        fi
+
+        mkfs.btrfs -f -L archroot "$ROOT_DEVICE"
+
+        # ── Create btrfs subvolumes ──
+        echo -e "${CYAN}[i]${RST} Creating btrfs subvolumes..."
+        mount "$ROOT_DEVICE" /mnt
+        btrfs subvolume create /mnt/@
+        btrfs subvolume create /mnt/@home
+        btrfs subvolume create /mnt/@log
+        btrfs subvolume create /mnt/@pkg
+        btrfs subvolume create /mnt/@.snapshots
+        if [[ "$ENABLE_LUKS" == "true" ]]; then
+            # @swap subvolume for hibernate (only with encryption usually)
+            btrfs subvolume create /mnt/@swap
+        fi
+        umount /mnt
+
+        # ── Mount everything at /mnt/archinstall ──
+        echo -e "${CYAN}[i]${RST} Mounting filesystem hierarchy..."
+        mkdir -p "$MOUNT_POINT"
+        mount -o compress=zstd,subvol=@ "$ROOT_DEVICE" "$MOUNT_POINT"
+
+        mkdir -p "$MOUNT_POINT"/{home,var/log,var/cache/pacman/pkg,.snapshots,efi,boot}
+        mount -o compress=zstd,subvol=@home       "$ROOT_DEVICE" "$MOUNT_POINT/home"
+        mount -o compress=zstd,subvol=@log         "$ROOT_DEVICE" "$MOUNT_POINT/var/log"
+        mount -o compress=zstd,subvol=@pkg         "$ROOT_DEVICE" "$MOUNT_POINT/var/cache/pacman/pkg"
+        mount -o compress=zstd,subvol=@.snapshots  "$ROOT_DEVICE" "$MOUNT_POINT/.snapshots"
+        if [[ "$ENABLE_LUKS" == "true" ]]; then
+            mkdir -p "$MOUNT_POINT/swap"
+            mount -o subvol=@swap "$ROOT_DEVICE" "$MOUNT_POINT/swap"
+        fi
+
+        mount "$ESP_PART"   "$MOUNT_POINT/efi"
+        mount "$XBOOT_PART" "$MOUNT_POINT/boot"
+
+        echo -e "${GREEN}[✓]${RST} All filesystems mounted at $MOUNT_POINT"
+
+        # ── Generate pre_mount config for archinstall ──
+        RESOLVED_CONFIG="$(mktemp -d)/config"
+        cp -r "$CONFIG_DIR" "$RESOLVED_CONFIG" 2>/dev/null || cp -r "${CONFIG_DIR}/"* "$RESOLVED_CONFIG/" 2>/dev/null
+        mkdir -p "$RESOLVED_CONFIG"
+
+        # Rewrite disk_config to pre_mount mode
+        python3 -c "
+import json, sys
+with open('$RESOLVED_CONFIG/user_configuration.json') as f:
+    cfg = json.load(f)
+cfg['disk_config'] = {
+    'config_type': 'pre_mounted_config',
+    'mountpoint': '$MOUNT_POINT'
+}
+# Remove disk_encryption (we handled it ourselves)
+cfg.pop('disk_encryption', None)
+with open('$RESOLVED_CONFIG/user_configuration.json', 'w') as f:
+    json.dump(cfg, f, indent=4)
+"
+
+        echo ""
+        echo -e "${CYAN}[i]${RST} Starting archinstall (pre-mount mode)..."
+        echo -e "${CYAN}[i]${RST} Config: $RESOLVED_CONFIG/user_configuration.json"
+        echo ""
+
+        creds_flag=""
+        if [[ -f "$RESOLVED_CONFIG/user_credentials.json" ]]; then
+            creds_flag="--creds $RESOLVED_CONFIG/user_credentials.json"
+        fi
+        archinstall --config "$RESOLVED_CONFIG/user_configuration.json" \
+            $creds_flag && \
+            echo "" || true
+
+# ── Standard / Dual-clean mode ───────────────────────────
+else
+    if [[ "$AUTO_DISK" == "true" ]]; then
+        TARGET_DISK="$(detect_disk)"
+        if [[ -z "$TARGET_DISK" ]]; then
+            echo -e "${RED}[✗]${RST} No suitable disk found. Falling back to interactive."
             AUTO_DISK=false
+        else
+            echo -e "${GREEN}[✓]${RST} Auto-selected disk: ${BOLD}$TARGET_DISK${RST} ($(lsblk -ndo SIZE "$TARGET_DISK"))"
+            echo ""
+            echo -e "${YELLOW}[!] WARNING: ALL DATA on $TARGET_DISK will be erased!${RST}"
+            echo ""
+            read -rp "Continue with $TARGET_DISK? [y/N] "
+            if [[ ${REPLY,,} != y ]]; then
+                AUTO_DISK=false
+            fi
         fi
     fi
-fi
 
-if [[ "$AUTO_DISK" != "true" ]]; then
-    echo ""
-    echo "Available disks:"
-    lsblk -do NAME,SIZE,MODEL,RM,TYPE | grep "disk"
-    echo ""
-    read -rp "Enter target disk (e.g. /dev/sda, /dev/nvme0n1): " TARGET_DISK
-    if [[ ! -b "$TARGET_DISK" ]]; then
-        echo -e "${RED}[✗]${RST} Invalid disk: $TARGET_DISK"
+    if [[ "$AUTO_DISK" != "true" ]]; then
+        echo ""
+        echo "Available disks:"
+        lsblk -do NAME,SIZE,MODEL,RM,TYPE | grep "disk"
+        echo ""
+        read -rp "Enter target disk (e.g. /dev/sda, /dev/nvme0n1): " TARGET_DISK
+        if [[ ! -b "$TARGET_DISK" ]]; then
+            echo -e "${RED}[✗]${RST} Invalid disk: $TARGET_DISK"
+            exit 1
+        fi
+    fi
+
+    # Update config with actual disk
+    RESOLVED_CONFIG="$(mktemp -d)/config"
+    cp -r "$CONFIG_DIR" "$RESOLVED_CONFIG" 2>/dev/null || cp -r "${CONFIG_DIR}/"* "$RESOLVED_CONFIG/" 2>/dev/null
+    mkdir -p "$RESOLVED_CONFIG"
+    sed -i "s|__DISK_DEVICE__|${TARGET_DISK}|g" "$RESOLVED_CONFIG/user_configuration.json"
+
+    # Compute root partition size based on layout
+    DISK_BYTES=$(lsblk -bndo SIZE "$TARGET_DISK" 2>/dev/null | head -1)
+    if [[ "$DISK_LAYOUT" == "dual-clean" ]]; then
+        ROOT_SIZE_GIB=$(( (DISK_BYTES / 1073741824) - 2 ))
+        ROOT_UUID="root-part-0003"
+    else
+        ROOT_SIZE_GIB=$(( (DISK_BYTES / 1073741824) - 1 ))
+        ROOT_UUID="root-part-0002"
+    fi
+    if (( ROOT_SIZE_GIB < 1 )); then
+        echo -e "${RED}[✗]${RST} Disk too small: $(( DISK_BYTES / 1073741824 )) GiB"
         exit 1
     fi
+    echo -e "${GREEN}[✓]${RST} Root partition size: ${ROOT_SIZE_GIB} GiB"
+    sed -i "s|__ROOT_PART_SIZE_GIB__|${ROOT_SIZE_GIB}|g" "$RESOLVED_CONFIG/user_configuration.json"
+    sed -i "s|__ROOT_PART_UUID__|${ROOT_UUID}|g" "$RESOLVED_CONFIG/user_configuration.json"
+
+    echo ""
+    echo -e "${CYAN}[i]${RST} Starting archinstall with configuration..."
+    echo -e "${CYAN}[i]${RST} Config: $RESOLVED_CONFIG/user_configuration.json"
+    echo ""
+
+    creds_flag=""
+    if [[ -f "$RESOLVED_CONFIG/user_credentials.json" ]]; then
+        creds_flag="--creds $RESOLVED_CONFIG/user_credentials.json"
+    fi
+    archinstall --config "$RESOLVED_CONFIG/user_configuration.json" \
+        $creds_flag && \
+        echo "" || true
 fi
-
-# Update config with actual disk
-RESOLVED_CONFIG="$(mktemp -d)/config"
-cp -r "$CONFIG_DIR" "$RESOLVED_CONFIG" 2>/dev/null || cp -r "${CONFIG_DIR}/"* "$RESOLVED_CONFIG/" 2>/dev/null
-mkdir -p "$RESOLVED_CONFIG"
-sed -i "s|__DISK_DEVICE__|${TARGET_DISK}|g" "$RESOLVED_CONFIG/user_configuration.json"
-
-# Compute root partition size based on layout
-DISK_BYTES=$(lsblk -bndo SIZE "$TARGET_DISK" 2>/dev/null | head -1)
-if [[ "$DUAL_BOOT" == "true" ]]; then
-    # ESP 512M + XBOOTLDR 1G = ~2 GiB overhead
-    ROOT_SIZE_GIB=$(( (DISK_BYTES / 1073741824) - 2 ))
-    ROOT_UUID="root-part-0003"
-else
-    # Single 1G boot partition
-    ROOT_SIZE_GIB=$(( (DISK_BYTES / 1073741824) - 1 ))
-    ROOT_UUID="root-part-0002"
-fi
-if (( ROOT_SIZE_GIB < 1 )); then
-    echo -e "${RED}[✗]${RST} Disk too small: $(( DISK_BYTES / 1073741824 )) GiB"
-    exit 1
-fi
-echo -e "${GREEN}[✓]${RST} Root partition size: ${ROOT_SIZE_GIB} GiB"
-sed -i "s|__ROOT_PART_SIZE_GIB__|${ROOT_SIZE_GIB}|g" "$RESOLVED_CONFIG/user_configuration.json"
-
-# Also fix the partition UUID placeholder for LUKS
-sed -i "s|__ROOT_PART_UUID__|${ROOT_UUID}|g" "$RESOLVED_CONFIG/user_configuration.json"
-
-echo ""
-echo -e "${CYAN}[i]${RST} Starting archinstall with configuration..."
-echo -e "${CYAN}[i]${RST} Config: $RESOLVED_CONFIG/user_configuration.json"
-echo ""
-
-# Run archinstall
-creds_flag=""
-if [[ -f "$RESOLVED_CONFIG/user_credentials.json" ]]; then
-    creds_flag="--creds $RESOLVED_CONFIG/user_credentials.json"
-fi
-archinstall --config "$RESOLVED_CONFIG/user_configuration.json" \
-    $creds_flag && \
-    echo "" || true
 
 # Copy post-install scripts to the new system
-MOUNT_POINT="/mnt/archinstall"
 if [[ -d "$MOUNT_POINT" ]]; then
     POST_DIR="$MOUNT_POINT/root/arch-autoinstall"
     mkdir -p "$POST_DIR"
@@ -2211,7 +2495,10 @@ AUTOEOF
 
     chmod +x "$target"
     sed -i "s|__AUTO_DISK__|$AUTO_DISK|g" "$target"
-    sed -i "s|__DUAL_BOOT__|$DUAL_BOOT|g" "$target"
+    sed -i "s|__DISK_LAYOUT__|$DISK_LAYOUT|g" "$target"
+    sed -i "s|__ENABLE_LUKS__|$ENABLE_LUKS|g" "$target"
+    sed -i "s|__ENABLE_PROXY__|$ENABLE_PROXY|g" "$target"
+    sed -i "s|__PROXY_URL__|$PROXY_URL|g" "$target"
 
     log "Generated autorun script: $target"
 }
