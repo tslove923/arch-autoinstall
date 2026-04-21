@@ -13,7 +13,8 @@
 #   - curl / wget
 #   - systemd-timesyncd
 ###############################################################################
-set -euo pipefail
+# Note: no set -euo pipefail here — this script is sourced by autorun.sh
+# which already has strict mode. Failures are handled explicitly.
 
 PROXY="${PROXY_URL:-http://proxy-dmz.intel.com:912}"
 SOCKS_PROXY="${SOCKS_PROXY_URL:-http://proxy-dmz.intel.com:1080}"

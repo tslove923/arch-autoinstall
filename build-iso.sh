@@ -1496,6 +1496,8 @@ apply_preferred() {
     ENABLE_HIBERNATE_GUARD=true
     INSTALL_YAY=true
     OFFLINE_MODE=false
+    ENABLE_PROXY=true
+    PROXY_URL="http://proxy-dmz.intel.com:912"
     # Auto-detect WiFi
     if command -v nmcli &>/dev/null; then
         local ssid
@@ -2186,17 +2188,7 @@ echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}                              Go Beavs! �
 echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}                                                        ${RST}"
 echo ""
 
-# Wait for network
-echo -e "${CYAN}[i]${RST} Waiting for network..."
-for i in $(seq 1 30); do
-    if ping -c1 -W1 archlinux.org &>/dev/null; then
-        echo -e "${GREEN}[✓]${RST} Network online"
-        break
-    fi
-    sleep 1
-done
-
-# Corporate proxy setup
+# Corporate proxy setup (must run BEFORE network check on proxy networks)
 if [[ "$ENABLE_PROXY" == "true" ]]; then
     echo -e "${CYAN}[i]${RST} Configuring corporate proxy..."
     if [[ -f "$SCRIPT_DIR/scripts/setup-proxy.sh" ]]; then
@@ -2206,6 +2198,24 @@ if [[ "$ENABLE_PROXY" == "true" ]]; then
         echo -e "${RED}[✗]${RST} setup-proxy.sh not found — skipping proxy config"
     fi
 fi
+
+# Wait for network
+echo -e "${CYAN}[i]${RST} Waiting for network..."
+for i in $(seq 1 30); do
+    if [[ "$ENABLE_PROXY" == "true" ]]; then
+        # On proxy networks, ICMP is blocked — test via HTTP through proxy
+        if curl -s --max-time 3 -I https://archlinux.org >/dev/null 2>&1; then
+            echo -e "${GREEN}[✓]${RST} Network online (via proxy)"
+            break
+        fi
+    else
+        if ping -c1 -W1 archlinux.org &>/dev/null; then
+            echo -e "${GREEN}[✓]${RST} Network online"
+            break
+        fi
+    fi
+    sleep 1
+done
 
 # Detect or select target disk
 detect_disk() {
