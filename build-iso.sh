@@ -2464,6 +2464,35 @@ with open('$RESOLVED_CONFIG/user_configuration.json', 'w') as f:
         fi
     fi
 
+    # If user credentials have no password baked in, prompt and inject
+    if [[ -f "$RESOLVED_CONFIG/user_credentials.json" ]]; then
+        if grep -q '"!password": ""' "$RESOLVED_CONFIG/user_credentials.json" 2>/dev/null || \
+           grep -q '__USER_PW__' "$RESOLVED_CONFIG/user_credentials.json" 2>/dev/null; then
+            echo ""
+            echo -e "${CYAN}[i]${RST} Set password for user account."
+            while true; do
+                read -rsp "Enter user password: " user_pw; echo
+                read -rsp "Confirm user password: " user_pw2; echo
+                if [[ "$user_pw" == "$user_pw2" && -n "$user_pw" ]]; then
+                    break
+                fi
+                echo -e "${RED}[✗]${RST} Passwords don't match or are empty. Try again."
+            done
+            # Replace empty password or placeholder with actual password
+            USER_PW="$user_pw" python3 -c "
+import json, os
+with open('$RESOLVED_CONFIG/user_credentials.json') as f:
+    creds = json.load(f)
+for user in creds.get('!users', creds.get('users', [])):
+    if not user.get('!password') or user['!password'] == '__USER_PW__':
+        user['!password'] = os.environ['USER_PW']
+with open('$RESOLVED_CONFIG/user_credentials.json', 'w') as f:
+    json.dump(creds, f, indent=4)
+"
+            echo -e "${GREEN}[✓]${RST} User password set."
+        fi
+    fi
+
     echo ""
     echo -e "${CYAN}[i]${RST} Starting archinstall with configuration..."
     echo -e "${CYAN}[i]${RST} Config: $RESOLVED_CONFIG/user_configuration.json"
