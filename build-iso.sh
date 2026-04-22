@@ -1573,22 +1573,20 @@ generate_archinstall_config() {
     fi
 
     # Disk encryption section
+    # archinstall 4.x uses top-level "encryption_password" instead of
+    # the deprecated "!encryption-password" inside disk_encryption.
     local encryption_json="null"
+    local enc_password_line=""
     if $ENABLE_LUKS; then
-        # archinstall: !encryption-password in disk_encryption triggers LUKS setup
-        # If empty, archinstall will prompt interactively
-        local luks_pw_json='""'
-        if [[ -n "$LUKS_PASSWORD" ]]; then
-            # Escape special JSON characters
-            local escaped_luks
-            escaped_luks="$(printf '%s' "$LUKS_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-            luks_pw_json="\"${escaped_luks}\""
-        fi
         encryption_json="{
         \"encryption_type\": \"luks\",
-        \"!encryption-password\": ${luks_pw_json},
         \"partitions\": [\"__ROOT_PART_UUID__\"]
     }"
+        if [[ -n "$LUKS_PASSWORD" ]]; then
+            local escaped_luks
+            escaped_luks="$(printf '%s' "$LUKS_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+            enc_password_line="\"encryption_password\": \"${escaped_luks}\","
+        fi
     fi
 
     # Btrfs subvolumes — always include @swap if hibernate enabled
@@ -1705,6 +1703,7 @@ generate_archinstall_config() {
         ]
     },
     "disk_encryption": $encryption_json,
+    $enc_password_line
     "hostname": "$HOSTNAME_CFG",
     "kernels": ["linux"],
     "locale_config": {
@@ -2434,6 +2433,36 @@ else
     echo -e "${GREEN}[✓]${RST} Root partition size: ${ROOT_SIZE_GIB} GiB"
     sed -i "s|__ROOT_PART_SIZE_GIB__|${ROOT_SIZE_GIB}|g" "$RESOLVED_CONFIG/user_configuration.json"
     sed -i "s|__ROOT_PART_UUID__|${ROOT_UUID}|g" "$RESOLVED_CONFIG/user_configuration.json"
+
+    # If LUKS enabled but no password baked in, prompt and inject into config
+    if [[ "$ENABLE_LUKS" == "true" ]]; then
+        if ! python3 -c "
+import json, sys
+with open('$RESOLVED_CONFIG/user_configuration.json') as f:
+    cfg = json.load(f)
+sys.exit(0 if cfg.get('encryption_password') else 1)
+" 2>/dev/null; then
+            echo ""
+            echo -e "${CYAN}[i]${RST} LUKS encryption is enabled. Enter disk encryption password."
+            while true; do
+                read -rsp "Enter LUKS password: " luks_pw; echo
+                read -rsp "Confirm LUKS password: " luks_pw2; echo
+                if [[ "$luks_pw" == "$luks_pw2" && -n "$luks_pw" ]]; then
+                    break
+                fi
+                echo -e "${RED}[✗]${RST} Passwords don't match or are empty. Try again."
+            done
+            LUKS_PW="$luks_pw" python3 -c "
+import json, os
+with open('$RESOLVED_CONFIG/user_configuration.json') as f:
+    cfg = json.load(f)
+cfg['encryption_password'] = os.environ['LUKS_PW']
+with open('$RESOLVED_CONFIG/user_configuration.json', 'w') as f:
+    json.dump(cfg, f, indent=4)
+"
+            echo -e "${GREEN}[✓]${RST} Encryption password set."
+        fi
+    fi
 
     echo ""
     echo -e "${CYAN}[i]${RST} Starting archinstall with configuration..."
