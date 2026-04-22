@@ -77,6 +77,9 @@ IDLE_ACTION="suspend-then-hibernate"   # suspend | hibernate | suspend-then-hibe
 IDLE_TIMEOUT_SEC=900             # seconds before idle action (15 min default)
 ENABLE_HIBERNATE_GUARD=true      # hibernate-guard disk-space watchdog
 
+# archinstall version pinning
+ARCHINSTALL_FALLBACK_VER="4.3-1"  # known-good version from ALA
+
 # Networking
 ENABLE_PROXY=false               # corporate proxy (Intel)
 PROXY_URL="http://proxy-dmz.intel.com:912"
@@ -2132,10 +2135,48 @@ AUTO_DISK="__AUTO_DISK__"
 DISK_LAYOUT="__DISK_LAYOUT__"
 ENABLE_LUKS="__ENABLE_LUKS__"
 ENABLE_PROXY="__ENABLE_PROXY__"
+ARCHINSTALL_FALLBACK_VER="__ARCHINSTALL_FALLBACK_VER__"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; RST='\033[0m'
 BG_ORANGE='\033[48;2;204;60;9m'; FG_WHITE='\033[38;2;255;255;255m'
+
+# Run archinstall with fallback to a known-good version if it fails
+run_archinstall() {
+    local config_file="$1"
+    local creds_flag="$2"
+
+    echo -e "${CYAN}[i]${RST} archinstall version: $(archinstall --version 2>/dev/null || echo 'unknown')"
+
+    # First attempt: bundled version
+    if archinstall --config "$config_file" $creds_flag --silent; then
+        echo -e "${GREEN}[✓]${RST} archinstall completed successfully"
+        return 0
+    fi
+
+    echo -e "${YELLOW}[!]${RST} archinstall failed — attempting fallback to v${ARCHINSTALL_FALLBACK_VER}..."
+
+    # Download known-good version from Arch Linux Archive
+    local ala_url="https://archive.archlinux.org/packages/a/archinstall/archinstall-${ARCHINSTALL_FALLBACK_VER}-any.pkg.tar.zst"
+    local pkg_path="/tmp/archinstall-fallback.pkg.tar.zst"
+
+    if curl -fSL -o "$pkg_path" "$ala_url"; then
+        echo -e "${CYAN}[i]${RST} Installing archinstall ${ARCHINSTALL_FALLBACK_VER} from ALA..."
+        pacman -U --noconfirm "$pkg_path"
+        echo -e "${CYAN}[i]${RST} Retrying archinstall..."
+
+        if archinstall --config "$config_file" $creds_flag --silent; then
+            echo -e "${GREEN}[✓]${RST} archinstall completed with fallback v${ARCHINSTALL_FALLBACK_VER}"
+            return 0
+        else
+            echo -e "${RED}[✗]${RST} archinstall failed even with fallback version"
+            return 1
+        fi
+    else
+        echo -e "${RED}[✗]${RST} Failed to download fallback archinstall from ALA"
+        return 1
+    fi
+}
 
 echo ""
 echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}                                                        ${RST}"
@@ -2397,9 +2438,7 @@ with open('$RESOLVED_CONFIG/user_configuration.json', 'w') as f:
         if [[ -f "$RESOLVED_CONFIG/user_credentials.json" ]]; then
             creds_flag="--creds $RESOLVED_CONFIG/user_credentials.json"
         fi
-        archinstall --config "$RESOLVED_CONFIG/user_configuration.json" \
-            $creds_flag --silent && \
-            echo "" || true
+        run_archinstall "$RESOLVED_CONFIG/user_configuration.json" "$creds_flag" || true
     fi  # end inner alongside check
 
 # ── Standard / Dual-clean mode ───────────────────────────
@@ -2526,9 +2565,7 @@ with open('$RESOLVED_CONFIG/user_credentials.json', 'w') as f:
     if [[ -f "$RESOLVED_CONFIG/user_credentials.json" ]]; then
         creds_flag="--creds $RESOLVED_CONFIG/user_credentials.json"
     fi
-    archinstall --config "$RESOLVED_CONFIG/user_configuration.json" \
-        $creds_flag --silent && \
-        echo "" || true
+    run_archinstall "$RESOLVED_CONFIG/user_configuration.json" "$creds_flag" || true
 fi
 
 # Copy post-install scripts to the new system
@@ -2584,6 +2621,7 @@ AUTOEOF
     sed -i "s|__ENABLE_LUKS__|$ENABLE_LUKS|g" "$target"
     sed -i "s|__ENABLE_PROXY__|$ENABLE_PROXY|g" "$target"
     sed -i "s|__PROXY_URL__|$PROXY_URL|g" "$target"
+    sed -i "s|__ARCHINSTALL_FALLBACK_VER__|$ARCHINSTALL_FALLBACK_VER|g" "$target"
 
     log "Generated autorun script: $target"
 }
