@@ -2568,8 +2568,37 @@ with open('$RESOLVED_CONFIG/user_credentials.json', 'w') as f:
     run_archinstall "$RESOLVED_CONFIG/user_configuration.json" "$creds_flag" || true
 fi
 
+# Re-mount installed system if archinstall unmounted it
+if ! mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
+    echo -e "${CYAN}[i]${RST} Re-mounting installed system for post-install setup..."
+    mkdir -p "$MOUNT_POINT"
+
+    # Find the root partition (btrfs with @ subvolume, or the LUKS container)
+    ROOT_DEV=""
+    if [[ "$ENABLE_LUKS" == "true" ]]; then
+        # Look for open LUKS mapper device
+        ROOT_DEV="$(lsblk -lno NAME,FSTYPE | awk '$2=="btrfs"{print "/dev/"$1}' | head -1)"
+    fi
+    if [[ -z "$ROOT_DEV" ]]; then
+        # Fall back: find btrfs partition on target disk
+        ROOT_DEV="$(lsblk -lno NAME,FSTYPE ${TARGET_DISK:-} 2>/dev/null | awk '$2=="btrfs"{print "/dev/"$1}' | head -1)"
+    fi
+    if [[ -z "$ROOT_DEV" ]]; then
+        # Last resort: any btrfs device
+        ROOT_DEV="$(lsblk -lno NAME,FSTYPE | awk '$2=="btrfs"{print "/dev/"$1}' | head -1)"
+    fi
+
+    if [[ -n "$ROOT_DEV" ]]; then
+        mount -o compress=zstd,subvol=@ "$ROOT_DEV" "$MOUNT_POINT" 2>/dev/null && \
+            echo -e "${GREEN}[✓]${RST} Mounted $ROOT_DEV at $MOUNT_POINT" || \
+            echo -e "${RED}[✗]${RST} Failed to mount root filesystem"
+    else
+        echo -e "${RED}[✗]${RST} Could not find installed root filesystem to mount"
+    fi
+fi
+
 # Copy post-install scripts to the new system
-if [[ -d "$MOUNT_POINT" ]]; then
+if mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
     POST_DIR="$MOUNT_POINT/root/arch-autoinstall"
     mkdir -p "$POST_DIR"
     cp "$SCRIPT_DIR"/scripts/*.sh "$POST_DIR/" 2>/dev/null || true
@@ -2598,6 +2627,9 @@ REMINDEREOF
     chmod +x "$MOUNT_POINT/etc/profile.d/99-post-install-reminder.sh"
 
     echo -e "${GREEN}[✓]${RST} Post-install scripts copied to new system"
+
+    # Unmount installed system
+    umount -R "$MOUNT_POINT" 2>/dev/null || true
 fi
 
 echo ""
