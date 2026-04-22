@@ -81,8 +81,8 @@ ENABLE_HIBERNATE_GUARD=true      # hibernate-guard disk-space watchdog
 ARCHINSTALL_FALLBACK_VER="4.3-1"  # known-good version from ALA
 
 # Networking
-ENABLE_PROXY=false               # corporate proxy support
-PROXY_URL=""                     # set to your proxy URL if needed
+ENABLE_PROXY=false               # corporate proxy (Intel)
+PROXY_URL="http://proxy-dmz.intel.com:912"
 
 # WiFi
 WIFI_SSID=""                     # pre-configure WiFi SSID
@@ -2635,6 +2635,15 @@ if [[ -f /root/arch-autoinstall/post-install.sh && ! -f /root/.post-install-done
 fi
 REMINDEREOF
     chmod +x "$MOUNT_POINT/etc/profile.d/99-post-install-reminder.sh"
+
+    # Apply proxy config to installed system immediately
+    if [[ "$ENABLE_PROXY" == "true" && -f "$POST_DIR/setup-proxy.sh" ]]; then
+        echo -e "${CYAN}[i]${RST} Applying proxy configuration to installed system..."
+        export PROXY_URL="$PROXY_URL"
+        arch-chroot "$MOUNT_POINT" bash -c "export PROXY_URL='$PROXY_URL'; bash /root/arch-autoinstall/setup-proxy.sh" && \
+            echo -e "${GREEN}[✓]${RST} Proxy configured on installed system" || \
+            echo -e "${RED}[✗]${RST} Failed to apply proxy config to installed system"
+    fi
 
     echo -e "${GREEN}[✓]${RST} Post-install scripts copied to new system"
 
