@@ -397,6 +397,8 @@ load_credentials_json() {
     fi
 
     local v
+    v="$(echo "$json_content" | grep -oP '"username"\s*:\s*"\K[^"]*' | head -1)"
+    [[ -n "$v" ]] && USERNAME_CFG="$v"
     v="$(echo "$json_content" | grep -oP '"user_password"\s*:\s*"\K[^"]*' | head -1)"
     [[ -n "$v" ]] && USER_PASSWORD="$v"
     v="$(echo "$json_content" | grep -oP '"luks_password"\s*:\s*"\K[^"]*' | head -1)"
@@ -1464,6 +1466,7 @@ show_review() {
 }
 
 apply_preferred() {
+    USERNAME_CFG="tslove"
     ENABLE_LUKS=true
     ENABLE_HIBERNATE=true
     ENABLE_TPM=true
