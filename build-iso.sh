@@ -1686,10 +1686,18 @@ generate_archinstall_config() {
     cat > "$config_dir/user_configuration.json" << JSONEOF
 {
     "additional-repositories": [],
-    "archinstall-language": "English",
-    "audio_config": {
-        "audio": "pipewire"
+    "app_config": {
+        "audio_config": {
+            "audio": "pipewire"
+        },
+        "bluetooth_config": {
+            "enabled": true
+        },
+        "print_service_config": {
+            "enabled": true
+        }
     },
+    "archinstall-language": "English",
     "bootloader": "Systemd-boot",
     "config_version": "3.0.1",
     "disk_config": {
@@ -1722,9 +1730,7 @@ generate_archinstall_config() {
     "ntp": true,
     "packages": [
         "git", "base-devel", "vim", "htop", "sbctl", "tpm2-tools",
-        "dialog", "fish", "networkmanager",
-        "bluez", "bluez-utils",
-        "cups"
+        "dialog", "fish", "networkmanager"
     ],
     "parallel downloads": 5,
     "profile_config": {
@@ -2389,7 +2395,7 @@ with open('$RESOLVED_CONFIG/user_configuration.json', 'w') as f:
             creds_flag="--creds $RESOLVED_CONFIG/user_credentials.json"
         fi
         archinstall --config "$RESOLVED_CONFIG/user_configuration.json" \
-            $creds_flag && \
+            $creds_flag --silent && \
             echo "" || true
     fi  # end inner alongside check
 
@@ -2518,7 +2524,7 @@ with open('$RESOLVED_CONFIG/user_credentials.json', 'w') as f:
         creds_flag="--creds $RESOLVED_CONFIG/user_credentials.json"
     fi
     archinstall --config "$RESOLVED_CONFIG/user_configuration.json" \
-        $creds_flag && \
+        $creds_flag --silent && \
         echo "" || true
 fi
 
