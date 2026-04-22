@@ -1548,7 +1548,7 @@ generate_archinstall_config() {
     # Build profile details
     local profile_details=()
     $ENABLE_HYPRLAND && profile_details+=("Hyprland")
-    $ENABLE_GNOME && profile_details+=("Gnome")
+    $ENABLE_GNOME && profile_details+=("GNOME")
 
     local profile_json="\"profile\": { \"main\": \"Desktop\", \"details\": ["
     local first=true
@@ -1722,7 +1722,9 @@ generate_archinstall_config() {
     "ntp": true,
     "packages": [
         "git", "base-devel", "vim", "htop", "sbctl", "tpm2-tools",
-        "dialog", "fish", "networkmanager"
+        "dialog", "fish", "networkmanager",
+        "bluez", "bluez-utils",
+        "cups"
     ],
     "parallel downloads": 5,
     "profile_config": {
@@ -1871,6 +1873,19 @@ echo -e "${BOLD}${CYAN}║      Arch Linux Post-Install Configuration          �
 echo -e "${BOLD}${CYAN}║      ISO provided by OSUOSL — Go Beavs! 🦫          ║${RST}"
 echo -e "${BOLD}${CYAN}╚══════════════════════════════════════════════════════╝${RST}"
 echo ""
+
+# ── Bluetooth & Printing ─────────────────────────────────
+step "Bluetooth & Printing Services"
+if command -v bluetoothctl &>/dev/null; then
+    sudo systemctl enable bluetooth.service 2>/dev/null && log "bluetooth.service enabled" || true
+else
+    warn "bluez not installed — skipping bluetooth"
+fi
+if command -v cupsd &>/dev/null; then
+    sudo systemctl enable cups.service 2>/dev/null && log "cups.service enabled" || true
+else
+    warn "cups not installed — skipping printing"
+fi
 
 # ── Corporate Proxy (persist to installed system) ────────
 if [[ "$ENABLE_PROXY" == "true" ]]; then
