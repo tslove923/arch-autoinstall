@@ -2417,12 +2417,14 @@ else
     sed -i "s|__DISK_DEVICE__|${TARGET_DISK}|g" "$RESOLVED_CONFIG/user_configuration.json"
 
     # Compute root partition size based on layout
+    # Subtract extra 1 MiB beyond the ESP to avoid overlapping the backup GPT header
     DISK_BYTES=$(lsblk -bndo SIZE "$TARGET_DISK" 2>/dev/null | head -1)
+    DISK_GIB=$(( DISK_BYTES / 1073741824 ))
     if [[ "$DISK_LAYOUT" == "dual-clean" ]]; then
-        ROOT_SIZE_GIB=$(( (DISK_BYTES / 1073741824) - 2 ))
+        ROOT_SIZE_GIB=$(( DISK_GIB - 3 ))
         ROOT_UUID="root-part-0003"
     else
-        ROOT_SIZE_GIB=$(( (DISK_BYTES / 1073741824) - 1 ))
+        ROOT_SIZE_GIB=$(( DISK_GIB - 2 ))
         ROOT_UUID="root-part-0002"
     fi
     if (( ROOT_SIZE_GIB < 1 )); then
