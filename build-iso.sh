@@ -2772,7 +2772,9 @@ customize_iso() {
     sudo cp -r "$config_stage/"* "$install_dir/config/"
 
     # Copy scripts
-    for script in enable_hibernate_swapfile.sh setup-secureboot.sh setup-tpm-unlock.sh hibernate-guard.sh; do
+    local scripts_to_copy=(enable_hibernate_swapfile.sh setup-secureboot.sh setup-tpm-unlock.sh hibernate-guard.sh)
+    $ENABLE_PROXY && scripts_to_copy+=(setup-proxy.sh)
+    for script in "${scripts_to_copy[@]}"; do
         if [[ -f "$SCRIPT_DIR/scripts/$script" ]]; then
             sudo cp "$SCRIPT_DIR/scripts/$script" "$install_dir/scripts/"
         fi
