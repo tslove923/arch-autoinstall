@@ -2377,6 +2377,7 @@ with open('$RESOLVED_CONFIG/user_configuration.json', 'w') as f:
         archinstall --config "$RESOLVED_CONFIG/user_configuration.json" \
             $creds_flag && \
             echo "" || true
+    fi  # end inner alongside check
 
 # ── Standard / Dual-clean mode ───────────────────────────
 else
