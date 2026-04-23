@@ -1466,7 +1466,7 @@ show_review() {
 }
 
 apply_preferred() {
-    USERNAME_CFG="tslove"
+    [[ -z "$USERNAME_CFG" ]] && USERNAME_CFG="tslove"
     ENABLE_LUKS=true
     ENABLE_HIBERNATE=true
     ENABLE_TPM=true
