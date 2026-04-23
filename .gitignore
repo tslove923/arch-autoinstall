@@ -5,3 +5,6 @@ out/
 configs/credentials.*
 configs/last-config.json
 vm/
+sqroot/
+isomnt/
+airootfs-patched.sfs

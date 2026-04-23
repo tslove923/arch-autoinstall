@@ -81,8 +81,8 @@ ENABLE_HIBERNATE_GUARD=true      # hibernate-guard disk-space watchdog
 ARCHINSTALL_FALLBACK_VER="4.3-1"  # known-good version from ALA
 
 # Networking
-ENABLE_PROXY=false               # corporate proxy (Intel)
-PROXY_URL="http://proxy-dmz.intel.com:912"
+ENABLE_PROXY=false               # corporate proxy support
+PROXY_URL=""                     # set to your proxy URL if needed
 
 # WiFi
 WIFI_SSID=""                     # pre-configure WiFi SSID
@@ -584,7 +584,7 @@ show_main_menu() {
         "7" "Passwords: User & LUKS encryption  [$(password_summary)]" \
         "8" "Sleep & Power: suspend / hibernate / hybrid  [$(sleep_summary)]" \
         "9" "WiFi: pre-configure wireless  [$(wifi_summary)]" \
-        "X" "Proxy: corporate network (Intel)  [$($ENABLE_PROXY && echo ON || echo off)]" \
+        "X" "Proxy: corporate network  [$($ENABLE_PROXY && echo ON || echo off)]" \
         "A" "Packages: yay, extra pacman & AUR  [$(packages_summary)]" \
         "O" "Offline installer  [$($OFFLINE_MODE && echo ON || echo off)]" \
         "S" "Save / Load config" \
@@ -1174,7 +1174,7 @@ configure_proxy() {
     result="$(run_dialog \
         --title " Corporate Proxy " \
         --backtitle "Arch Linux Autoinstaller Configuration" \
-        --checklist "\nEnable corporate proxy for networks that require it\n(e.g. Intel). Configures proxy for pacman, curl, wget,\ndirmngr, reflector, and NTP.\n" \
+        --checklist "\nEnable corporate proxy for networks that require it.\nConfigures proxy for pacman, curl, wget, dirmngr,\nreflector, and NTP.\n" \
         14 68 1 \
         1 "Enable corporate proxy" "$($ENABLE_PROXY && echo on || echo off)" \
         3>&1 1>&2 2>&3)" || return

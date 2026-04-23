@@ -237,10 +237,10 @@ files (`.gpg` extension — decrypted at load time).
 
 ## Branch Strategy
 
-- **`master`** — Public release. Generic autoinstaller, no corporate proxy.
-- **`feature/intel-proxy`** — Internal. Rebased on master with proxy commits
-  on top. Push to internal repo only.
+- **`master`** — Public release. Generic autoinstaller.
+- Feature branches for site-specific customizations (e.g. corporate proxy)
+  can be rebased on master.
 
 When making changes:
-- Generic fixes → commit on `master`, then rebase `feature/intel-proxy`
-- Proxy-only changes → commit directly on `feature/intel-proxy`
+- Generic fixes → commit on `master`
+- Site-specific changes → commit on feature branches, rebase on master
