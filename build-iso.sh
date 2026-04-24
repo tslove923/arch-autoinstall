@@ -2592,6 +2592,11 @@ if ! mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
         mount -o compress=zstd,subvol=@ "$ROOT_DEV" "$MOUNT_POINT" 2>/dev/null && \
             echo -e "${GREEN}[✓]${RST} Mounted $ROOT_DEV at $MOUNT_POINT" || \
             echo -e "${RED}[✗]${RST} Failed to mount root filesystem"
+        # Mount @home subvolume so we can copy to user home
+        if mountpoint -q "$MOUNT_POINT" 2>/dev/null && [[ -d "$MOUNT_POINT/home" ]]; then
+            mount -o compress=zstd,subvol=@home "$ROOT_DEV" "$MOUNT_POINT/home" 2>/dev/null && \
+                echo -e "${GREEN}[✓]${RST} Mounted @home subvolume" || true
+        fi
     else
         echo -e "${RED}[✗]${RST} Could not find installed root filesystem to mount"
     fi
