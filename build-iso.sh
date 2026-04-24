@@ -2609,6 +2609,7 @@ fi
 
 # Copy post-install scripts to the new system
 if mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
+    # Copy to /root for running as root (hibernate, secureboot, tpm)
     POST_DIR="$MOUNT_POINT/root/arch-autoinstall"
     mkdir -p "$POST_DIR"
     cp "$SCRIPT_DIR"/scripts/*.sh "$POST_DIR/" 2>/dev/null || true
@@ -2618,19 +2619,54 @@ if mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
     cp "$SCRIPT_DIR/post-install.sh" "$POST_DIR/" 2>/dev/null || true
     chmod +x "$POST_DIR"/*.sh 2>/dev/null || true
 
+    # Copy to user home ~/post-install for easy access
+    # Detect username from credentials JSON or find first user home
+    INSTALL_USER=""
+    if [[ -f "$CONFIG_DIR/user_credentials.json" ]]; then
+        INSTALL_USER="$(python3 -c "
+import json
+with open('$CONFIG_DIR/user_credentials.json') as f:
+    c = json.load(f)
+for u in c.get('!users', c.get('users', [])):
+    if u.get('username'):
+        print(u['username']); break
+" 2>/dev/null)" || true
+    fi
+    # Fallback: first real home directory on installed system
+    if [[ -z "$INSTALL_USER" ]]; then
+        INSTALL_USER="$(ls "$MOUNT_POINT/home/" 2>/dev/null | head -1)" || true
+    fi
+    if [[ -n "$INSTALL_USER" && -d "$MOUNT_POINT/home/$INSTALL_USER" ]]; then
+        USER_POST_DIR="$MOUNT_POINT/home/$INSTALL_USER/post-install"
+        mkdir -p "$USER_POST_DIR"
+        cp "$SCRIPT_DIR"/scripts/*.sh "$USER_POST_DIR/" 2>/dev/null || true
+        cp "$SCRIPT_DIR"/scripts/*.service "$USER_POST_DIR/" 2>/dev/null || true
+        cp "$SCRIPT_DIR"/scripts/*.timer "$USER_POST_DIR/" 2>/dev/null || true
+        cp "$SCRIPT_DIR"/scripts/*.conf "$USER_POST_DIR/" 2>/dev/null || true
+        cp "$SCRIPT_DIR/post-install.sh" "$USER_POST_DIR/" 2>/dev/null || true
+        chmod +x "$USER_POST_DIR"/*.sh 2>/dev/null || true
+        # Fix ownership — archinstall created the home dir as the user
+        USER_UID="$(grep "^${INSTALL_USER}:" "$MOUNT_POINT/etc/passwd" | cut -d: -f3)"
+        USER_GID="$(grep "^${INSTALL_USER}:" "$MOUNT_POINT/etc/passwd" | cut -d: -f4)"
+        if [[ -n "$USER_UID" && -n "$USER_GID" ]]; then
+            chown -R "${USER_UID}:${USER_GID}" "$USER_POST_DIR"
+        fi
+        echo -e "${GREEN}[✓]${RST} Post-install scripts copied to /home/$INSTALL_USER/post-install/"
+    fi
+
     # Create a first-boot reminder
     mkdir -p "$MOUNT_POINT/etc/profile.d"
     cat > "$MOUNT_POINT/etc/profile.d/99-post-install-reminder.sh" << 'REMINDEREOF'
 #!/bin/bash
 if [[ -f /root/arch-autoinstall/post-install.sh && ! -f /root/.post-install-done ]]; then
     echo ""
-    echo -e "\033[1;33m╔══════════════════════════════════════════════════════════╗\033[0m"
-    echo -e "\033[1;33m║  Post-install scripts available at:                      ║\033[0m"
-    echo -e "\033[1;33m║    /root/arch-autoinstall/post-install.sh                ║\033[0m"
-    echo -e "\033[1;33m║                                                          ║\033[0m"
-    echo -e "\033[1;33m║  Run as root to configure hibernate, Secure Boot, TPM,   ║\033[0m"
-    echo -e "\033[1;33m║  and illogical-impulse.                                  ║\033[0m"
-    echo -e "\033[1;33m╚══════════════════════════════════════════════════════════╝\033[0m"
+    echo -e "\033[1;33m╔══════════════════════════════════════════════════════════════╗\033[0m"
+    echo -e "\033[1;33m║  Post-install scripts available at:                          ║\033[0m"
+    echo -e "\033[1;33m║    ~/post-install/           (user copy)                     ║\033[0m"
+    echo -e "\033[1;33m║    /root/arch-autoinstall/   (root copy)                     ║\033[0m"
+    echo -e "\033[1;33m║                                                              ║\033[0m"
+    echo -e "\033[1;33m║  Run as root:  sudo /root/arch-autoinstall/post-install.sh   ║\033[0m"
+    echo -e "\033[1;33m╚══════════════════════════════════════════════════════════════╝\033[0m"
     echo ""
 fi
 REMINDEREOF
@@ -2655,9 +2691,10 @@ echo ""
 echo -e "${GREEN}${BOLD}Installation complete!${RST}"
 echo ""
 echo -e "${CYAN}Post-install steps after rebooting:${RST}"
-echo "  1. Log in as root or your user"
-echo "  2. Run: /root/arch-autoinstall/post-install.sh"
-echo "  3. Follow the on-screen instructions for Secure Boot + TPM"
+echo "  1. Log in as your user"
+echo "  2. Scripts are in ~/post-install/ (and /root/arch-autoinstall/)"
+echo "  3. Run: sudo ~/post-install/post-install.sh"
+echo "  4. Follow the on-screen instructions for Secure Boot + TPM"
 echo ""
 echo -e "${BOLD}ISO provided by OSUOSL — osuosl.org/donate${RST}"
 echo -e "${BOLD}Go Beavs! 🦫${RST}"
