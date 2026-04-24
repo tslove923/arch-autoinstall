@@ -85,8 +85,9 @@ automatically during post-install.
 After the automated install completes and you reboot:
 
 1. **First boot** — A reminder banner shows the post-install script location
-2. **Run** `/root/arch-autoinstall/post-install.sh`
-3. The script handles (in order):
+2. Scripts are in `~/post-install/` (user copy) and `/root/arch-autoinstall/` (root copy)
+3. **Run** `sudo ~/post-install/post-install.sh`
+4. The script handles (in order):
    - Hibernate setup (swapfile, resume params, mkinitcpio)
    - Secure Boot key creation and enrollment (if firmware is in Setup Mode)
    - Reboot prompt to enable Secure Boot in BIOS
@@ -113,6 +114,7 @@ arch-autoinstall/
 ├── README.md
 ├── scripts/
 │   ├── enable_hibernate_swapfile.sh  # Hibernate setup (8 steps)
+│   ├── setup-proxy.sh                # Corporate proxy configuration
 │   ├── setup-secureboot.sh           # Secure Boot with sbctl (6 steps)
 │   └── setup-tpm-unlock.sh           # TPM2 auto-unlock (6 steps)
 ├── configs/                          # Generated archinstall configs
@@ -145,6 +147,25 @@ arch-autoinstall/
 - `xorriso` (`libisoburn`) — ISO manipulation
 - `squashfs-tools` — Root filesystem modification
 - Root privileges for ISO customization
+
+## Corporate Proxy Support
+
+For networks that require an HTTP proxy (e.g. Intel), enable the proxy option
+in the TUI or use `--preferred`. When enabled, `scripts/setup-proxy.sh` is
+bundled into the ISO and automatically applied to the installed system.
+
+The proxy script configures:
+- `/etc/environment` — `http_proxy`, `https_proxy`, `ftp_proxy`, `no_proxy`
+- `/etc/sudoers.d/proxy` — preserves proxy env vars through sudo
+- `/etc/pacman.conf` — XferCommand with proxy-aware curl
+- `/etc/resolv.conf` — corporate DNS servers
+- `/etc/gnupg/dirmngr.conf` — GPG keyserver proxy
+- `/etc/systemd/timesyncd.conf` — corporate NTP + fallback
+- `/etc/xdg/reflector/reflector.conf` — mirror refresh with `--url` flag
+
+Proxy is applied during install (via `arch-chroot`) so the installed system
+has network access on first boot. The script is also available at
+`~/post-install/setup-proxy.sh` for re-running or updating.
 
 ## Notes
 
