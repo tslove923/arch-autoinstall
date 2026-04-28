@@ -2603,10 +2603,10 @@ if ! mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
             echo -e "${GREEN}[✓]${RST} Mounted $ROOT_DEV at $MOUNT_POINT" || \
             echo -e "${RED}[✗]${RST} Failed to mount root filesystem"
         # Mount @home subvolume so we can copy to user home
-        if mountpoint -q "$MOUNT_POINT" 2>/dev/null && [[ -d "$MOUNT_POINT/home" ]]; then
-            mount -o compress=zstd,subvol=@home "$ROOT_DEV" "$MOUNT_POINT/home" 2>/dev/null && \
-                echo -e "${GREEN}[✓]${RST} Mounted @home subvolume" || true
-        fi
+        mkdir -p "$MOUNT_POINT/home"
+        mount -o compress=zstd,subvol=@home "$ROOT_DEV" "$MOUNT_POINT/home" 2>/dev/null && \
+            echo -e "${GREEN}[✓]${RST} Mounted @home subvolume" || \
+            echo -e "${YELLOW}[!]${RST} Could not mount @home subvolume"
     else
         echo -e "${RED}[✗]${RST} Could not find installed root filesystem to mount"
     fi
@@ -2641,6 +2641,8 @@ for u in c.get('!users', c.get('users', [])):
     if [[ -z "$INSTALL_USER" ]]; then
         INSTALL_USER="$(ls "$MOUNT_POINT/home/" 2>/dev/null | head -1)" || true
     fi
+    echo -e "${CYAN}[i]${RST} Detected install user: '${INSTALL_USER:-<none>}'"
+    echo -e "${CYAN}[i]${RST} Home dir exists: $(ls -la "$MOUNT_POINT/home/" 2>&1 | head -5)"
     if [[ -n "$INSTALL_USER" && -d "$MOUNT_POINT/home/$INSTALL_USER" ]]; then
         USER_POST_DIR="$MOUNT_POINT/home/$INSTALL_USER/post-install"
         mkdir -p "$USER_POST_DIR"
