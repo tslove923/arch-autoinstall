@@ -75,6 +75,32 @@ echo "[5/6] Enrolling keys in firmware (with Microsoft compatibility)..."
 echo "  This keeps dual-boot and option ROM support working."
 echo ""
 
+# Warn about BitLocker if Windows is detected on a dual-boot system
+if [[ -d /efi/EFI/Microsoft ]] || [[ -d /boot/EFI/Microsoft ]]; then
+    echo "══════════════════════════════════════════════════════"
+    echo " ⚠  WARNING: Windows detected — BitLocker recovery"
+    echo "══════════════════════════════════════════════════════"
+    echo ""
+    echo "  Enrolling Secure Boot keys changes the firmware key"
+    echo "  database (PK/KEK/db), which alters PCR 7. If Windows"
+    echo "  has BitLocker enabled and bound to PCR 7 (the default),"
+    echo "  it will trigger a BitLocker recovery prompt on next"
+    echo "  Windows boot."
+    echo ""
+    echo "  Before continuing, make sure you have your BitLocker"
+    echo "  recovery key. You can find it via:"
+    echo "    • Your org's recovery portal (Intune/SCCM/AD)"
+    echo "    • manage-bde -protectors -get C:  (admin PowerShell)"
+    echo "    • https://aka.ms/myrecoverykey  (Microsoft account)"
+    echo ""
+    echo "  After entering the recovery key once, BitLocker will"
+    echo "  re-seal to the new PCR values automatically."
+    echo ""
+    read -rp "  Continue with key enrollment? [y/N] " -n1; echo
+    [[ ${REPLY,,} == y ]] || { echo "Aborted. Re-run when ready."; exit 0; }
+    echo ""
+fi
+
 # Remove immutable flag on EFI vars (some firmware sets it)
 chattr -i /sys/firmware/efi/efivars/{PK,KEK,db,dbx}* 2>/dev/null || true
 
