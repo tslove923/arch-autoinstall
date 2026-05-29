@@ -346,14 +346,16 @@ load_config_json() {
 
 # Build a JSON string with credentials
 creds_to_json() {
-    local esc_user esc_luks
+    local esc_user esc_luks esc_wifi
     esc_user="$(printf '%s' "$USER_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')"
     esc_luks="$(printf '%s' "$LUKS_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    esc_wifi="$(printf '%s' "$WIFI_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')"
     cat << CREDJSON
 {
     "_comment": "arch-autoinstall credentials — generated $(date -Iseconds)",
     "user_password": "$esc_user",
-    "luks_password": "$esc_luks"
+    "luks_password": "$esc_luks",
+    "wifi_password": "$esc_wifi"
 }
 CREDJSON
 }
@@ -400,12 +402,14 @@ load_credentials_json() {
     fi
 
     local v
-    v="$(echo "$json_content" | grep -oP '"username"\s*:\s*"\K[^"]*' | head -1)"
+    v="$(echo "$json_content" | grep -oP '"username"\s*:\s*"\K[^"]*' | head -1 || true)"
     [[ -n "$v" ]] && USERNAME_CFG="$v"
-    v="$(echo "$json_content" | grep -oP '"user_password"\s*:\s*"\K[^"]*' | head -1)"
+    v="$(echo "$json_content" | grep -oP '"user_password"\s*:\s*"\K[^"]*' | head -1 || true)"
     [[ -n "$v" ]] && USER_PASSWORD="$v"
-    v="$(echo "$json_content" | grep -oP '"luks_password"\s*:\s*"\K[^"]*' | head -1)"
+    v="$(echo "$json_content" | grep -oP '"luks_password"\s*:\s*"\K[^"]*' | head -1 || true)"
     [[ -n "$v" ]] && LUKS_PASSWORD="$v"
+    v="$(echo "$json_content" | grep -oP '"wifi_password"\s*:\s*"\K[^"]*' | head -1 || true)"
+    [[ -n "$v" ]] && WIFI_PASSWORD="$v"
 
     log "Credentials loaded from: $path"
 }
@@ -2137,6 +2141,9 @@ AUTO_DISK="__AUTO_DISK__"
 DISK_LAYOUT="__DISK_LAYOUT__"
 ENABLE_LUKS="__ENABLE_LUKS__"
 ENABLE_PROXY="__ENABLE_PROXY__"
+ENABLE_WIFI="__ENABLE_WIFI__"
+WIFI_SSID="__WIFI_SSID__"
+WIFI_PASSWORD='__WIFI_PASSWORD__'
 ARCHINSTALL_FALLBACK_VER="__ARCHINSTALL_FALLBACK_VER__"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -2187,6 +2194,30 @@ echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}    ISO provided by OSUOSL — osuosl.org
 echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}                              Go Beavs! 🦫                ${RST}"
 echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}                                                        ${RST}"
 echo ""
+
+# WiFi auto-connect (must run BEFORE proxy and network check)
+if [[ "$ENABLE_WIFI" == "true" && -n "$WIFI_SSID" ]]; then
+    echo -e "${CYAN}[i]${RST} Connecting to WiFi: ${BOLD}$WIFI_SSID${RST}"
+    # Wait for wireless adapter
+    for i in $(seq 1 10); do
+        if iwctl device list 2>/dev/null | grep -q wlan0; then
+            echo -e "${GREEN}[✓]${RST} Wireless adapter found"
+            break
+        fi
+        echo -e "${CYAN}[i]${RST} Waiting for wireless adapter... ($i/10)"
+        sleep 1
+    done
+    if [[ -n "$WIFI_PASSWORD" ]]; then
+        iwctl --passphrase "$WIFI_PASSWORD" station wlan0 connect "$WIFI_SSID" && \
+            echo -e "${GREEN}[✓]${RST} WiFi connected" || \
+            echo -e "${RED}[✗]${RST} WiFi connection failed — try manually: iwctl station wlan0 connect $WIFI_SSID"
+    else
+        iwctl station wlan0 connect "$WIFI_SSID" && \
+            echo -e "${GREEN}[✓]${RST} WiFi connected (open network)" || \
+            echo -e "${RED}[✗]${RST} WiFi connection failed"
+    fi
+    sleep 2  # let DHCP settle
+fi
 
 # Corporate proxy setup (must run BEFORE network check on proxy networks)
 if [[ "$ENABLE_PROXY" == "true" ]]; then
@@ -2717,6 +2748,9 @@ AUTOEOF
     sed -i "s|__ENABLE_PROXY__|$ENABLE_PROXY|g" "$target"
     sed -i "s|__PROXY_URL__|$PROXY_URL|g" "$target"
     sed -i "s|__ARCHINSTALL_FALLBACK_VER__|$ARCHINSTALL_FALLBACK_VER|g" "$target"
+    sed -i "s|__ENABLE_WIFI__|$ENABLE_WIFI|g" "$target"
+    sed -i "s|__WIFI_SSID__|$WIFI_SSID|g" "$target"
+    sed -i "s|__WIFI_PASSWORD__|$WIFI_PASSWORD|g" "$target"
 
     log "Generated autorun script: $target"
 }
