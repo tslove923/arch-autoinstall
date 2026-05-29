@@ -1821,6 +1821,7 @@ ENABLE_HIBERNATE="__ENABLE_HIBERNATE__"
 ENABLE_TPM="__ENABLE_TPM__"
 ENABLE_II="__ENABLE_II__"
 ENABLE_II_FEATURES="__ENABLE_II_FEATURES__"
+INSTALL_YAY="__INSTALL_YAY__"
 # Selected feature branches (set by build-iso.sh feature picker)
 II_SELECTED_BRANCHES="__II_SELECTED_BRANCHES__"
 
@@ -1930,6 +1931,33 @@ if [[ "$DISK_LAYOUT" == "dual-clean" || "$DISK_LAYOUT" == "alongside" ]]; then
         log "UKIs regenerated in /boot/EFI/Linux/"
     else
         log "UKIs already present in /boot/EFI/Linux/"
+    fi
+fi
+
+# ── yay (AUR helper) ─────────────────────────────────────
+if [[ "$INSTALL_YAY" == "true" ]]; then
+    step "Installing yay (AUR helper)"
+    if command -v yay &>/dev/null; then
+        log "yay already installed"
+    else
+        if ! command -v git &>/dev/null || ! command -v makepkg &>/dev/null; then
+            err "git or makepkg missing — cannot build yay. Install base-devel."
+        else
+            # makepkg cannot run as root — determine the real user
+            REAL_USER="${SUDO_USER:-$USER}"
+            if [[ "$EUID" -eq 0 && -z "$SUDO_USER" ]]; then
+                err "Cannot determine non-root user for makepkg. Run post-install as: sudo -E ./post-install.sh"
+            else
+                TMPDIR="$(mktemp -d)"
+                chown "$REAL_USER" "$TMPDIR"
+                sudo -u "$REAL_USER" git clone https://aur.archlinux.org/yay.git "$TMPDIR/yay"
+                cd "$TMPDIR/yay"
+                sudo -u "$REAL_USER" makepkg -si --noconfirm
+                cd - > /dev/null
+                rm -rf "$TMPDIR"
+                command -v yay &>/dev/null && log "yay installed" || err "yay build failed"
+            fi
+        fi
     fi
 fi
 
@@ -2107,6 +2135,7 @@ POSTEOF
     sed -i "s|__ENABLE_TPM__|$ENABLE_TPM|g" "$target"
     sed -i "s|__ENABLE_II__|$ENABLE_II|g" "$target"
     sed -i "s|__ENABLE_II_FEATURES__|$ENABLE_II_FEATURES|g" "$target"
+    sed -i "s|__INSTALL_YAY__|$INSTALL_YAY|g" "$target"
 
     # Build comma-separated list of selected ii branches
     local ii_branch_list=""
