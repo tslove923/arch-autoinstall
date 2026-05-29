@@ -81,8 +81,8 @@ ENABLE_HIBERNATE_GUARD=true      # hibernate-guard disk-space watchdog
 ARCHINSTALL_FALLBACK_VER="4.3-1"  # known-good version from ALA
 
 # Networking
-ENABLE_PROXY=false               # corporate proxy support
-PROXY_URL=""                     # set to your proxy URL if needed
+ENABLE_PROXY=false               # corporate proxy (Intel)
+PROXY_URL="http://proxy-dmz.intel.com:912"
 
 # WiFi
 WIFI_SSID=""                     # pre-configure WiFi SSID
@@ -346,14 +346,16 @@ load_config_json() {
 
 # Build a JSON string with credentials
 creds_to_json() {
-    local esc_user esc_luks
+    local esc_user esc_luks esc_wifi
     esc_user="$(printf '%s' "$USER_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')"
     esc_luks="$(printf '%s' "$LUKS_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    esc_wifi="$(printf '%s' "$WIFI_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')"
     cat << CREDJSON
 {
     "_comment": "arch-autoinstall credentials — generated $(date -Iseconds)",
     "user_password": "$esc_user",
-    "luks_password": "$esc_luks"
+    "luks_password": "$esc_luks",
+    "wifi_password": "$esc_wifi"
 }
 CREDJSON
 }
@@ -400,12 +402,14 @@ load_credentials_json() {
     fi
 
     local v
-    v="$(echo "$json_content" | grep -oP '"username"\s*:\s*"\K[^"]*' | head -1)"
+    v="$(echo "$json_content" | grep -oP '"username"\s*:\s*"\K[^"]*' | head -1 || true)"
     [[ -n "$v" ]] && USERNAME_CFG="$v"
-    v="$(echo "$json_content" | grep -oP '"user_password"\s*:\s*"\K[^"]*' | head -1)"
+    v="$(echo "$json_content" | grep -oP '"user_password"\s*:\s*"\K[^"]*' | head -1 || true)"
     [[ -n "$v" ]] && USER_PASSWORD="$v"
-    v="$(echo "$json_content" | grep -oP '"luks_password"\s*:\s*"\K[^"]*' | head -1)"
+    v="$(echo "$json_content" | grep -oP '"luks_password"\s*:\s*"\K[^"]*' | head -1 || true)"
     [[ -n "$v" ]] && LUKS_PASSWORD="$v"
+    v="$(echo "$json_content" | grep -oP '"wifi_password"\s*:\s*"\K[^"]*' | head -1 || true)"
+    [[ -n "$v" ]] && WIFI_PASSWORD="$v"
 
     log "Credentials loaded from: $path"
 }
@@ -1496,6 +1500,8 @@ apply_preferred() {
     ENABLE_HIBERNATE_GUARD=true
     INSTALL_YAY=true
     OFFLINE_MODE=false
+    ENABLE_PROXY=true
+    PROXY_URL="http://proxy-dmz.intel.com:912"
     # Auto-detect WiFi
     if command -v nmcli &>/dev/null; then
         local ssid
@@ -2135,6 +2141,9 @@ AUTO_DISK="__AUTO_DISK__"
 DISK_LAYOUT="__DISK_LAYOUT__"
 ENABLE_LUKS="__ENABLE_LUKS__"
 ENABLE_PROXY="__ENABLE_PROXY__"
+ENABLE_WIFI="__ENABLE_WIFI__"
+WIFI_SSID="__WIFI_SSID__"
+WIFI_PASSWORD='__WIFI_PASSWORD__'
 ARCHINSTALL_FALLBACK_VER="__ARCHINSTALL_FALLBACK_VER__"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -2186,17 +2195,31 @@ echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}                              Go Beavs! �
 echo -e "${BG_ORANGE}${FG_WHITE}${BOLD}                                                        ${RST}"
 echo ""
 
-# Wait for network
-echo -e "${CYAN}[i]${RST} Waiting for network..."
-for i in $(seq 1 30); do
-    if ping -c1 -W1 archlinux.org &>/dev/null; then
-        echo -e "${GREEN}[✓]${RST} Network online"
-        break
+# WiFi auto-connect (must run BEFORE proxy and network check)
+if [[ "$ENABLE_WIFI" == "true" && -n "$WIFI_SSID" ]]; then
+    echo -e "${CYAN}[i]${RST} Connecting to WiFi: ${BOLD}$WIFI_SSID${RST}"
+    # Wait for wireless adapter
+    for i in $(seq 1 10); do
+        if iwctl device list 2>/dev/null | grep -q wlan0; then
+            echo -e "${GREEN}[✓]${RST} Wireless adapter found"
+            break
+        fi
+        echo -e "${CYAN}[i]${RST} Waiting for wireless adapter... ($i/10)"
+        sleep 1
+    done
+    if [[ -n "$WIFI_PASSWORD" ]]; then
+        iwctl --passphrase "$WIFI_PASSWORD" station wlan0 connect "$WIFI_SSID" && \
+            echo -e "${GREEN}[✓]${RST} WiFi connected" || \
+            echo -e "${RED}[✗]${RST} WiFi connection failed — try manually: iwctl station wlan0 connect $WIFI_SSID"
+    else
+        iwctl station wlan0 connect "$WIFI_SSID" && \
+            echo -e "${GREEN}[✓]${RST} WiFi connected (open network)" || \
+            echo -e "${RED}[✗]${RST} WiFi connection failed"
     fi
-    sleep 1
-done
+    sleep 2  # let DHCP settle
+fi
 
-# Corporate proxy setup
+# Corporate proxy setup (must run BEFORE network check on proxy networks)
 if [[ "$ENABLE_PROXY" == "true" ]]; then
     echo -e "${CYAN}[i]${RST} Configuring corporate proxy..."
     if [[ -f "$SCRIPT_DIR/scripts/setup-proxy.sh" ]]; then
@@ -2206,6 +2229,24 @@ if [[ "$ENABLE_PROXY" == "true" ]]; then
         echo -e "${RED}[✗]${RST} setup-proxy.sh not found — skipping proxy config"
     fi
 fi
+
+# Wait for network
+echo -e "${CYAN}[i]${RST} Waiting for network..."
+for i in $(seq 1 30); do
+    if [[ "$ENABLE_PROXY" == "true" ]]; then
+        # On proxy networks, ICMP is blocked — test via HTTP through proxy
+        if curl -s --max-time 3 -I https://archlinux.org >/dev/null 2>&1; then
+            echo -e "${GREEN}[✓]${RST} Network online (via proxy)"
+            break
+        fi
+    else
+        if ping -c1 -W1 archlinux.org &>/dev/null; then
+            echo -e "${GREEN}[✓]${RST} Network online"
+            break
+        fi
+    fi
+    sleep 1
+done
 
 # Detect or select target disk
 detect_disk() {
@@ -2593,10 +2634,10 @@ if ! mountpoint -q "$MOUNT_POINT" 2>/dev/null; then
             echo -e "${GREEN}[✓]${RST} Mounted $ROOT_DEV at $MOUNT_POINT" || \
             echo -e "${RED}[✗]${RST} Failed to mount root filesystem"
         # Mount @home subvolume so we can copy to user home
-        if mountpoint -q "$MOUNT_POINT" 2>/dev/null && [[ -d "$MOUNT_POINT/home" ]]; then
-            mount -o compress=zstd,subvol=@home "$ROOT_DEV" "$MOUNT_POINT/home" 2>/dev/null && \
-                echo -e "${GREEN}[✓]${RST} Mounted @home subvolume" || true
-        fi
+        mkdir -p "$MOUNT_POINT/home"
+        mount -o compress=zstd,subvol=@home "$ROOT_DEV" "$MOUNT_POINT/home" 2>/dev/null && \
+            echo -e "${GREEN}[✓]${RST} Mounted @home subvolume" || \
+            echo -e "${YELLOW}[!]${RST} Could not mount @home subvolume"
     else
         echo -e "${RED}[✗]${RST} Could not find installed root filesystem to mount"
     fi
@@ -2631,6 +2672,8 @@ for u in c.get('!users', c.get('users', [])):
     if [[ -z "$INSTALL_USER" ]]; then
         INSTALL_USER="$(ls "$MOUNT_POINT/home/" 2>/dev/null | head -1)" || true
     fi
+    echo -e "${CYAN}[i]${RST} Detected install user: '${INSTALL_USER:-<none>}'"
+    echo -e "${CYAN}[i]${RST} Home dir exists: $(ls -la "$MOUNT_POINT/home/" 2>&1 | head -5)"
     if [[ -n "$INSTALL_USER" && -d "$MOUNT_POINT/home/$INSTALL_USER" ]]; then
         USER_POST_DIR="$MOUNT_POINT/home/$INSTALL_USER/post-install"
         mkdir -p "$USER_POST_DIR"
@@ -2667,6 +2710,15 @@ fi
 REMINDEREOF
     chmod +x "$MOUNT_POINT/etc/profile.d/99-post-install-reminder.sh"
 
+    # Apply proxy config to installed system immediately
+    if [[ "$ENABLE_PROXY" == "true" && -f "$POST_DIR/setup-proxy.sh" ]]; then
+        echo -e "${CYAN}[i]${RST} Applying proxy configuration to installed system..."
+        export PROXY_URL="$PROXY_URL"
+        arch-chroot "$MOUNT_POINT" bash -c "export PROXY_URL='$PROXY_URL'; bash /root/arch-autoinstall/setup-proxy.sh" && \
+            echo -e "${GREEN}[✓]${RST} Proxy configured on installed system" || \
+            echo -e "${RED}[✗]${RST} Failed to apply proxy config to installed system"
+    fi
+
     echo -e "${GREEN}[✓]${RST} Post-install scripts copied to new system"
 
     # Unmount installed system
@@ -2696,6 +2748,9 @@ AUTOEOF
     sed -i "s|__ENABLE_PROXY__|$ENABLE_PROXY|g" "$target"
     sed -i "s|__PROXY_URL__|$PROXY_URL|g" "$target"
     sed -i "s|__ARCHINSTALL_FALLBACK_VER__|$ARCHINSTALL_FALLBACK_VER|g" "$target"
+    sed -i "s|__ENABLE_WIFI__|$ENABLE_WIFI|g" "$target"
+    sed -i "s|__WIFI_SSID__|$WIFI_SSID|g" "$target"
+    sed -i "s|__WIFI_PASSWORD__|$WIFI_PASSWORD|g" "$target"
 
     log "Generated autorun script: $target"
 }
@@ -2804,7 +2859,9 @@ customize_iso() {
     sudo cp -r "$config_stage/"* "$install_dir/config/"
 
     # Copy scripts
-    for script in enable_hibernate_swapfile.sh setup-secureboot.sh setup-tpm-unlock.sh hibernate-guard.sh; do
+    local scripts_to_copy=(enable_hibernate_swapfile.sh setup-secureboot.sh setup-tpm-unlock.sh hibernate-guard.sh)
+    $ENABLE_PROXY && scripts_to_copy+=(setup-proxy.sh)
+    for script in "${scripts_to_copy[@]}"; do
         if [[ -f "$SCRIPT_DIR/scripts/$script" ]]; then
             sudo cp "$SCRIPT_DIR/scripts/$script" "$install_dir/scripts/"
         fi
