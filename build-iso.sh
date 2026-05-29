@@ -310,7 +310,17 @@ load_config_json() {
     v="$(_json_str timezone)";             [[ -n "$v" ]] && TIMEZONE_CFG="$v"
     v="$(_json_str locale)";               [[ -n "$v" ]] && LOCALE_CFG="$v"
     v="$(_json_str kb_layout)";            [[ -n "$v" ]] && KB_LAYOUT_CFG="$v"
-    v="$(_json_str gfx_drivers)";          [[ -n "$v" ]] && IFS=' ' read -ra GFX_DRIVERS <<< "$v"
+    v="$(_json_str gfx_drivers || true)"
+    if [[ -n "$v" ]]; then
+        GFX_DRIVERS=()
+        # Match full driver names as substrings — space-split is wrong since names contain spaces
+        [[ "$v" == *"Intel (open-source)"*               ]] && GFX_DRIVERS+=("Intel (open-source)")
+        [[ "$v" == *"Nvidia (proprietary)"*               ]] && GFX_DRIVERS+=("Nvidia (proprietary)")
+        [[ "$v" == *"Nvidia (open-source nouveau)"*       ]] && GFX_DRIVERS+=("Nvidia (open-source nouveau)")
+        [[ "$v" == *"AMD / ATI (open-source)"*            ]] && GFX_DRIVERS+=("AMD / ATI (open-source)")
+        [[ "$v" == *"VMware / VirtualBox (open-source)"*  ]] && GFX_DRIVERS+=("VMware / VirtualBox (open-source)")
+        [[ ${#GFX_DRIVERS[@]} -eq 0 ]] && GFX_DRIVERS=("Intel (open-source)")
+    fi
     v="$(_json_bool enable_proxy)";        [[ -n "$v" ]] && ENABLE_PROXY=$v
     v="$(_json_str proxy_url)";             [[ -n "$v" ]] && PROXY_URL="$v"
     v="$(_json_bool enable_wifi)";         [[ -n "$v" ]] && ENABLE_WIFI=$v
