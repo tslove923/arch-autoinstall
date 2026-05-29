@@ -82,7 +82,7 @@ ARCHINSTALL_FALLBACK_VER="4.3-1"  # known-good version from ALA
 
 # Networking
 ENABLE_PROXY=false               # corporate proxy (Intel)
-PROXY_URL="http://proxy-dmz.intel.com:912"
+PROXY_URL="http://proxy.example.com:912"
 
 # WiFi
 WIFI_SSID=""                     # pre-configure WiFi SSID
@@ -1501,7 +1501,7 @@ apply_preferred() {
     INSTALL_YAY=true
     OFFLINE_MODE=false
     ENABLE_PROXY=true
-    PROXY_URL="http://proxy-dmz.intel.com:912"
+    PROXY_URL="http://proxy.example.com:912"
     # Auto-detect WiFi
     if command -v nmcli &>/dev/null; then
         local ssid
